@@ -1,39 +1,23 @@
-#!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#   "radon==6.0.1",
-#   "complexipy==5.6.1",
-# ]
-# ///
-
-"""Analyze coupling between configurable sets of Odoo modules."""
+"""Odoo module analysis pipeline."""
 
 from __future__ import annotations
 
 import ast
 import csv
-import html
-import json
 import math
 import re
 import statistics
 import sys
 from collections import Counter, defaultdict
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Iterable
 from xml.etree import ElementTree
 
-import click
 import complexipy
 from radon.visitors import ComplexityVisitor
-from toolz import curry, merge, pipe, valmap
-
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-TEMPLATES_DIR = SCRIPT_DIR / "templates"
-
+from toolz import curry, pipe, valmap
 
 RELATIONAL_FIELD_TYPES = {"Many2one", "One2many", "Many2many"}
 RECORDSET_CHAIN_METHODS = {
@@ -85,30 +69,6 @@ GRAPH_VIEW_KINDS = {
     "xml_ref",
     "xml_percent_ref",
 }
-GRAPH_POINT_KINDS = (
-    GRAPH_MODEL_REUSE_KINDS
-    | GRAPH_EXTENSION_METHOD_KINDS
-    | GRAPH_VIEW_KINDS
-    | GRAPH_FIELD_PROPERTY_KINDS
-)
-GRAPH_KIND_LABELS = {
-    "python__inherit": "Model extension (_inherit)",
-    "python_method_call": "Method call",
-    "python_private_method_call": "Private method call",
-    "python_many2one": "Many2one field",
-    "python_one2many": "One2many field",
-    "python_many2many": "Many2many field",
-    "python_related": "Related field",
-    "python_api_depends": "@api.depends",
-    "python_api_onchange": "@api.onchange",
-    "python_api_constrains": "@api.constrains",
-    "python_env_model": "self.env['model'] access",
-    "security_ir_rule_model_ref": "ir.rule model reference",
-    "xml_inherit_id": "XML inherit_id",
-    "xml_ref": "XML ref",
-    "xml_percent_ref": "XML %(module.xml_id)d ref",
-    "python_field_property_access": "Field/property access",
-}
 
 LINE_CATEGORY_KEYS = (
     "python_lines",
@@ -118,26 +78,7 @@ LINE_CATEGORY_KEYS = (
     "css_lines",
     "html_lines",
 )
-LINE_CATEGORY_LABELS = {
-    "python_lines": "python code",
-    "js_lines": "JS code",
-    "python_test_lines": "python test",
-    "xml_lines": "xml view",
-    "css_lines": "css",
-    "html_lines": "html",
-}
-LINE_CATEGORY_DEFAULTS = {"python_lines", "js_lines"}
 CSS_FILE_SUFFIXES = {".css", ".scss", ".less", ".sass"}
-
-
-@dataclass(slots=True)
-class Evidence:
-    """Store one concrete coupling evidence."""
-
-    kind: str
-    file_path: str
-    line: int
-    detail: str
 
 
 @dataclass(slots=True)
@@ -147,29 +88,25 @@ class CouplingEdge:
     source_module: str
     target_module: str
     kind_counter: Counter = field(default_factory=Counter)
-    evidence: list[Evidence] = field(default_factory=list)
 
     def add(self, kind: str, file_path: Path, line: int, detail: str) -> None:
         """Add one evidence item to the edge."""
+        del file_path, line, detail
         self.kind_counter[kind] += 1
-        self.evidence.append(
-            Evidence(kind=kind, file_path=str(file_path), line=line, detail=detail),
-        )
 
     @property
     def score(self) -> int:
         """Compute graph points for this edge."""
-        return build_graph_points(self)["total"]
+        return edge_score(self)
 
 
 @dataclass(slots=True)
 class FileLineInfo:
-    """Store per-file line metrics for treemap visualization."""
+    """Store per-file line metrics."""
 
     relative_path: str
     lines: int
     category: str
-    top_folder: str
     complexity: ComplexityMetrics | None = None
     parse_error: str | None = None
 
@@ -236,7 +173,6 @@ class ModuleInfo:
     name: str
     path: Path
     manifest_path: Path
-    manifest: dict[str, Any]
     manifest_depends: set[str] = field(default_factory=set)
     declared_models: set[str] = field(default_factory=set)
     inherited_models: set[str] = field(default_factory=set)
@@ -263,8 +199,6 @@ class ReportConfig:
     """Store configurable report settings."""
 
     project_label: str
-    report_title: str
-    scope_description: str
     module_prefixes: tuple[str, ...] = ()
     include_modules: tuple[str, ...] = ()
     all_modules: bool = False
@@ -311,52 +245,7 @@ def build_distribution_stats(values: Iterable[int | float]) -> DistributionStats
     )
 
 
-def stats_to_payload(stats: DistributionStats) -> dict[str, Any]:
-    """Serialize distribution stats for JSON payloads."""
-    return {
-        "count": stats.count,
-        "mean": stats.mean,
-        "median": stats.median,
-        "p95": stats.p95,
-        "max": stats.max,
-    }
-
-
-def complexity_to_payload(metrics: ComplexityMetrics) -> dict[str, Any]:
-    """Serialize complexity metrics for JSON payloads."""
-    return {
-        "cyclomatic": stats_to_payload(metrics.cyclomatic),
-        "cognitive": stats_to_payload(metrics.cognitive),
-        "jones": stats_to_payload(metrics.jones),
-    }
-
-
-def format_metric_value(value: float) -> str:
-    """Format one metric value for human-readable reports."""
-    if float(value).is_integer():
-        return str(int(value))
-    return f"{value:.2f}".rstrip("0").rstrip(".")
-
-
-def format_stats_compact(
-    stats: DistributionStats,
-    include_max: bool = True,
-) -> str:
-    """Render compact stats string for text reports."""
-    if stats.count == 0:
-        return "-"
-    parts = [
-        f"avg={format_metric_value(stats.mean)}",
-        f"med={format_metric_value(stats.median)}",
-        f"p95={format_metric_value(stats.p95)}",
-    ]
-    if include_max:
-        parts.append(f"max={format_metric_value(stats.max)}")
-    parts.append(f"n={stats.count}")
-    return ", ".join(parts)
-
-
-def build_graph_points(edge: CouplingEdge) -> dict[str, int]:
+def edge_score(edge: CouplingEdge) -> int:
     """Compute graph points according to custom coupling formula."""
     model_reuse = sum(
         count
@@ -378,312 +267,7 @@ def build_graph_points(edge: CouplingEdge) -> dict[str, int]:
         for kind, count in edge.kind_counter.items()
         if kind in GRAPH_FIELD_PROPERTY_KINDS
     )
-    return {
-        "model_reuse": model_reuse,
-        "extension_or_method": extension_or_method,
-        "view": view_points,
-        "field_property": field_property,
-        "total": model_reuse + extension_or_method + view_points + field_property,
-    }
-
-
-def build_totals_payload(modules: dict[str, ModuleInfo]) -> dict[str, int]:
-    """Build report-wide line totals."""
-    return valmap(
-        sum,
-        merge(
-            {"total_lines_total": [module.total_lines for module in modules.values()]},
-            {
-                f"{key}_total": [getattr(module, key) for module in modules.values()]
-                for key in LINE_CATEGORY_KEYS
-            },
-        ),
-    )
-
-
-def build_module_payload(
-    module_name: str,
-    module: ModuleInfo,
-    modules: dict[str, ModuleInfo],
-    module_scores: dict[str, dict[str, int]],
-) -> dict[str, Any]:
-    """Build JSON payload for one module."""
-    return merge(
-        {
-            "module": module_name,
-            "path": str(module.path),
-            "manifest_path": str(module.manifest_path),
-            "manifest_depends_in_scope": sorted(
-                dependency
-                for dependency in module.manifest_depends
-                if dependency in modules and dependency != module_name
-            ),
-            "total_lines": module.total_lines,
-            "complexity": complexity_to_payload(module.complexity),
-            "python_complexity_parse_errors": module.python_complexity_parse_errors,
-        },
-        module.line_categories(),
-        {
-            "declared_models": sorted(module.declared_models),
-            "inherited_models": sorted(module.inherited_models),
-            "score": module_scores[module_name],
-            "files": [
-                {
-                    "relative_path": file_info.relative_path,
-                    "lines": file_info.lines,
-                    "category": file_info.category,
-                    "top_folder": file_info.top_folder,
-                    "complexity": (
-                        complexity_to_payload(file_info.complexity)
-                        if file_info.complexity is not None
-                        else None
-                    ),
-                    "parse_error": file_info.parse_error,
-                }
-                for file_info in module.files
-            ],
-            "python_complexity_files": [
-                {
-                    "relative_path": item.relative_path,
-                    "lines": item.lines,
-                    "function_count": item.function_count,
-                    "jones_line_count": item.jones_line_count,
-                    "complexity": complexity_to_payload(item.complexity),
-                    "parse_error": item.parse_error,
-                }
-                for item in module.python_complexity_files
-            ],
-        },
-    )
-
-
-def build_edge_payload(edge: CouplingEdge) -> dict[str, Any]:
-    """Build JSON payload for one scored edge."""
-    return {
-        "source_module": edge.source_module,
-        "target_module": edge.target_module,
-        "score": edge.score,
-        "graph_points": build_graph_points(edge),
-        "kinds": dict(sorted(edge.kind_counter.items())),
-        "evidence": [
-            {
-                "kind": evidence.kind,
-                "file": evidence.file_path,
-                "line": evidence.line,
-                "detail": evidence.detail,
-            }
-            for evidence in edge.evidence
-        ],
-    }
-
-
-def build_enriched_edges(
-    edges: dict[tuple[str, str], CouplingEdge],
-) -> list[tuple[CouplingEdge, dict[str, int]]]:
-    """Build scored edges sorted by graph weight."""
-    return pipe(
-        edges.values(),
-        lambda items: ((edge, build_graph_points(edge)) for edge in items),
-        lambda items: sorted(
-            items,
-            key=lambda item: (
-                item[1]["total"],
-                item[0].score,
-                item[0].source_module,
-                item[0].target_module,
-            ),
-            reverse=True,
-        ),
-        list,
-    )
-
-
-def build_graph_node_stats(
-    modules: dict[str, ModuleInfo],
-    enriched_edges: list[tuple[CouplingEdge, dict[str, int]]],
-) -> dict[str, dict[str, int]]:
-    """Build in/out graph-point totals for every module node."""
-    stats: dict[str, dict[str, int]] = {
-        module_name: {"out": 0, "in": 0}
-        for module_name in modules
-    }
-    for edge, graph_points in enriched_edges:
-        if graph_points["total"] <= 0:
-            continue
-        stats[edge.source_module]["out"] += graph_points["total"]
-        stats[edge.target_module]["in"] += graph_points["total"]
-    return stats
-
-
-def build_python_complexity_rows_payload(
-    modules: dict[str, ModuleInfo],
-) -> list[dict[str, Any]]:
-    """Build flat payload for the Python complexity table."""
-    return pipe(
-        sorted(modules),
-        lambda module_names: (
-            {
-                "module": module_name,
-                "relative_path": file_info.relative_path,
-                "lines": file_info.lines,
-                "function_count": file_info.function_count,
-                "jones_line_count": file_info.jones_line_count,
-                "complexity": complexity_to_payload(file_info.complexity),
-                "parse_error": file_info.parse_error,
-            }
-            for module_name in module_names
-            for file_info in sorted(
-                modules[module_name].python_complexity_files,
-                key=lambda item: (-item.lines, item.relative_path),
-            )
-        ),
-        list,
-    )
-
-
-def build_edge_category_rows_payload(
-    enriched_edges: list[tuple[CouplingEdge, dict[str, int]]],
-    load_source_line: Any,
-) -> list[dict[str, Any]]:
-    """Build flat payload for edge-category rows."""
-    rows: list[dict[str, Any]] = []
-    for edge, graph_points in enriched_edges:
-        if graph_points["total"] <= 0:
-            continue
-        for kind, points in sorted(
-            edge.kind_counter.items(),
-            key=lambda item: (-item[1], item[0]),
-        ):
-            if kind not in GRAPH_POINT_KINDS or points <= 0:
-                continue
-            evidence_items = [
-                evidence for evidence in edge.evidence if evidence.kind == kind
-            ]
-            rows.append(
-                {
-                    "source": edge.source_module,
-                    "target": edge.target_module,
-                    "kind": kind,
-                    "category_label": GRAPH_KIND_LABELS.get(kind, kind),
-                    "points": points,
-                    "edge_points": graph_points["total"],
-                    "evidence": [
-                        {
-                            "quote_text": load_source_line(evidence.file_path, evidence.line)
-                            or evidence.detail,
-                            "location": (
-                                f"{evidence.file_path}:{evidence.line}"
-                                if evidence.line
-                                else evidence.file_path
-                            ),
-                            "detail": evidence.detail,
-                            "file_path": evidence.file_path,
-                            "line": evidence.line,
-                        }
-                        for evidence in evidence_items
-                    ],
-                },
-            )
-    return rows
-
-
-def build_graph_edges_payload(
-    enriched_edges: list[tuple[CouplingEdge, dict[str, int]]],
-) -> list[dict[str, Any]]:
-    """Build payload for SVG graph edges."""
-    return [
-        {
-            "source": edge.source_module,
-            "target": edge.target_module,
-            "points": graph_points["total"],
-            "model_reuse": graph_points["model_reuse"],
-            "extension_or_method": graph_points["extension_or_method"],
-            "view": graph_points["view"],
-            "field_property": graph_points["field_property"],
-        }
-        for edge, graph_points in enriched_edges
-        if graph_points["total"] > 0
-    ]
-
-
-def build_file_payload(
-    file_info: FileLineInfo,
-    complexity_lookup: dict[str, FileComplexityInfo],
-) -> dict[str, Any]:
-    """Build payload for one file tile/detail row."""
-    complexity_file = complexity_lookup.get(file_info.relative_path)
-    return {
-        "relative_path": file_info.relative_path,
-        "lines": file_info.lines,
-        "category": file_info.category,
-        "top_folder": file_info.top_folder,
-        "function_count": complexity_file.function_count if complexity_file else 0,
-        "jones_line_count": complexity_file.jones_line_count if complexity_file else 0,
-        "complexity": (
-            complexity_to_payload(file_info.complexity)
-            if file_info.complexity is not None
-            else None
-        ),
-        "parse_error": file_info.parse_error,
-    }
-
-
-def build_node_payload(
-    modules: dict[str, ModuleInfo],
-    graph_node_stats: dict[str, dict[str, int]],
-) -> list[dict[str, Any]]:
-    """Build payload for SVG graph nodes and treemap file lists."""
-    node_payload: list[dict[str, Any]] = []
-    for module_name in sorted(modules):
-        module = modules[module_name]
-        complexity_lookup = {
-            file_info.relative_path: file_info
-            for file_info in module.python_complexity_files
-        }
-        node_payload.append(
-            merge(
-                {
-                    "id": module_name,
-                    "out": graph_node_stats[module_name]["out"],
-                    "in": graph_node_stats[module_name]["in"],
-                    "total": graph_node_stats[module_name]["out"] + graph_node_stats[module_name]["in"],
-                    "total_lines": module.total_lines,
-                    "python_complexity_file_count": len(module.python_complexity_files),
-                    "complexity": complexity_to_payload(module.complexity),
-                    "files": [
-                        build_file_payload(file_info, complexity_lookup)
-                        for file_info in module.files
-                    ],
-                },
-                module.line_categories(),
-            ),
-        )
-    return node_payload
-
-
-def build_graph_payload(
-    modules: dict[str, ModuleInfo],
-    edges: dict[tuple[str, str], CouplingEdge],
-    load_source_line: Any,
-) -> dict[str, Any]:
-    """Build full JSON payload consumed by the HTML report UI."""
-    enriched_edges = build_enriched_edges(edges)
-    return {
-        "nodes": build_node_payload(
-            modules,
-            build_graph_node_stats(modules, enriched_edges),
-        ),
-        "edges": build_graph_edges_payload(enriched_edges),
-        "python_complexity_rows": build_python_complexity_rows_payload(modules),
-        "edge_category_rows": build_edge_category_rows_payload(
-            enriched_edges,
-            load_source_line,
-        ),
-        "line_categories": [
-            {"key": key, "label": LINE_CATEGORY_LABELS[key], "default": key in LINE_CATEGORY_DEFAULTS}
-            for key in LINE_CATEGORY_KEYS
-        ],
-    }
+    return model_reuse + extension_or_method + view_points + field_property
 
 
 class MethodAnalyzer(ast.NodeVisitor):
@@ -893,51 +477,20 @@ class MethodAnalyzer(ast.NodeVisitor):
 def build_report_config(
     *,
     project_label: str,
-    report_title: str | None,
-    scope_description: str | None,
-    module_prefixes: tuple[str, ...],
-    include_modules: tuple[str, ...],
-    all_modules: bool,
+    module_prefixes: tuple[str, ...] = (),
+    include_modules: tuple[str, ...] = (),
+    all_modules: bool = True,
 ) -> ReportConfig:
-    """Build report configuration from CLI arguments."""
-    include_modules = tuple(sorted(set(include_modules)))
+    """Build report configuration for module discovery."""
     if all_modules:
         normalized_module_prefixes: tuple[str, ...] = ()
     else:
-        raw_prefixes = module_prefixes or ()
-        normalized_module_prefixes = tuple(sorted(set(raw_prefixes)))
-
-    resolved_report_title = report_title or f"{project_label} Coupling Report"
-    if scope_description:
-        resolved_scope_description = scope_description
-    elif all_modules:
-        resolved_scope_description = "Scope: relations between all modules discovered under the provided addons roots."
-    elif normalized_module_prefixes and include_modules:
-        resolved_scope_description = (
-            "Scope: relations between modules filtered by prefixes "
-            f"{', '.join(normalized_module_prefixes)} and explicitly included modules "
-            f"{', '.join(include_modules)}."
-        )
-    elif normalized_module_prefixes:
-        resolved_scope_description = (
-            "Scope: relations between modules with prefixes "
-            f"{', '.join(normalized_module_prefixes)}."
-        )
-    elif include_modules:
-        resolved_scope_description = (
-            "Scope: relations between explicitly included modules "
-            f"{', '.join(include_modules)}."
-        )
-    else:
-        resolved_scope_description = "Scope: relations between discovered modules."
-
+        normalized_module_prefixes = tuple(sorted(set(module_prefixes)))
     return ReportConfig(
         project_label=project_label,
-        report_title=resolved_report_title,
-        scope_description=resolved_scope_description,
         module_prefixes=normalized_module_prefixes,
-        include_modules=include_modules,
-        all_modules=bool(all_modules),
+        include_modules=tuple(sorted(set(include_modules))),
+        all_modules=all_modules,
     )
 
 
@@ -950,7 +503,7 @@ def validate_addons_paths(addons_paths: tuple[Path, ...]) -> tuple[Path, ...]:
     """Validate that every addons path is an existing directory."""
     invalid_paths = [path for path in addons_paths if not path.is_dir()]
     if invalid_paths:
-        raise click.ClickException(
+        raise ValueError(
             "\n".join(f"Path must be a directory: {path}" for path in invalid_paths),
         )
     return addons_paths
@@ -964,7 +517,7 @@ def discover_analysis_artifacts(
     """Discover filtered modules and initialize analysis state."""
     modules = discover_modules(list(addons_paths), config)
     if not modules:
-        raise click.ClickException("No matching Odoo modules found.")
+        raise ValueError("No matching Odoo modules found.")
     return AnalysisArtifacts(
         addons_paths=addons_paths,
         config=config,
@@ -974,10 +527,12 @@ def discover_analysis_artifacts(
 
 def enrich_modules_with_code_analysis(artifacts: AnalysisArtifacts) -> AnalysisArtifacts:
     """Run module analyzers and return updated pipeline state."""
-    modules = pipe(
-        artifacts.modules,
-        analyze_module_code_size,
-        analyze_python_complexity,
+    modules = deepcopy(
+        pipe(
+            artifacts.modules,
+            analyze_module_code_size,
+            analyze_python_complexity,
+        ),
     )
     analyze_python_modules(modules)
     return replace(artifacts, modules=modules)
@@ -1122,7 +677,6 @@ def discover_modules(
                 name=module_name,
                 path=module_path,
                 manifest_path=manifest_path,
-                manifest=manifest,
                 manifest_depends=depends,
             )
 
@@ -1164,14 +718,6 @@ def classify_file(file_path: Path, module_path: Path) -> str | None:
     return None
 
 
-def top_folder_of(relative_path: str) -> str:
-    """Return first path segment of relative path or ``<root>`` for module-root files."""
-    parts = relative_path.split("/", 1)
-    if len(parts) > 1 and parts[0]:
-        return parts[0]
-    return "<root>"
-
-
 def analyze_module_code_size_for_module(module: ModuleInfo) -> ModuleInfo:
     """Count code-size metrics for one module without mutating input."""
     counters = dict.fromkeys(LINE_CATEGORY_KEYS, 0)
@@ -1190,7 +736,6 @@ def analyze_module_code_size_for_module(module: ModuleInfo) -> ModuleInfo:
                 relative_path=relative_path,
                 lines=line_count,
                 category=category,
-                top_folder=top_folder_of(relative_path),
             ),
         )
     return replace(
@@ -1228,6 +773,8 @@ class JonesComplexityVisitor(ast.NodeVisitor):
             if isinstance(line_no, int) and line_no > 0:
                 self.line_nodes[line_no] += 1
         super().generic_visit(node)
+
+
 def iter_radon_function_blocks(blocks: Iterable[Any]) -> Iterable[Any]:
     """Yield radon function/method blocks, including nested closures and methods."""
     for block in blocks:
@@ -1573,7 +1120,7 @@ def analyze_python_file(
     return class_summaries
 
 
-def analyze_python_modules(modules: dict[str, ModuleInfo]) -> None:
+def analyze_python_modules(modules: dict[str, ModuleInfo]) -> dict[str, ModuleInfo]:
     """Load and analyze Python files for each module."""
     global_relational_fields: dict[str, dict[str, str]] = defaultdict(dict)
 
@@ -1607,6 +1154,8 @@ def analyze_python_modules(modules: dict[str, ModuleInfo]) -> None:
                 if model_name not in class_summary.inherit_models
             )
             module.inherited_models.update(class_summary.inherit_models)
+
+    return modules
 
 
 def find_external_ids(text: str) -> list[str]:
@@ -1652,9 +1201,8 @@ def add_module_links(
     file_path: Path,
     line: int,
     detail: str,
-) -> bool:
+) -> None:
     """Add links from source to explicit target modules."""
-    added = False
     for target_module in sorted(target_modules):
         if target_module == source_module or target_module not in modules:
             continue
@@ -1664,8 +1212,6 @@ def add_module_links(
             CouplingEdge(source_module=source_module, target_module=target_module),
         )
         edge.add(kind=kind, file_path=file_path, line=line, detail=detail)
-        added = True
-    return added
 
 
 def build_field_providers(
@@ -2074,370 +1620,17 @@ def build_module_scores(
 ) -> dict[str, dict[str, int]]:
     """Build per-module score stats."""
     stats: dict[str, dict[str, int]] = {
-        module_name: {
-            "outgoing_score": 0,
-            "incoming_score": 0,
-            "outgoing_edges": 0,
-            "incoming_edges": 0,
-            "private_calls": 0,
-        }
+        module_name: {"outgoing_score": 0, "incoming_score": 0}
         for module_name in modules
     }
 
     for edge in edges.values():
-        edge_score = edge.score
-        if edge_score <= 0:
+        edge_score_value = edge.score
+        if edge_score_value <= 0:
             continue
-        stats[edge.source_module]["outgoing_score"] += edge_score
-        stats[edge.source_module]["outgoing_edges"] += 1
-        stats[edge.target_module]["incoming_score"] += edge_score
-        stats[edge.target_module]["incoming_edges"] += 1
-        stats[edge.source_module]["private_calls"] += edge.kind_counter.get(
-            "python_private_method_call",
-            0,
-        )
+        stats[edge.source_module]["outgoing_score"] += edge_score_value
+        stats[edge.target_module]["incoming_score"] += edge_score_value
 
     return stats
 
 
-def render_text_report(
-    modules: dict[str, ModuleInfo],
-    edges: dict[tuple[str, str], CouplingEdge],
-    module_scores: dict[str, dict[str, int]],
-    config: ReportConfig,
-) -> str:
-    """Render human-readable coupling report."""
-    def complexity_summary(metrics: ComplexityMetrics) -> str:
-        return (
-            f"cc=({format_stats_compact(metrics.cyclomatic)}), "
-            f"cognitive=({format_stats_compact(metrics.cognitive)}), "
-            f"jones=({format_stats_compact(metrics.jones)})"
-        )
-
-    lines: list[str] = []
-    lines.append(f"{config.project_label} modules found: {len(modules)}")
-    lines.append("")
-    lines.append("Modules:")
-    for module_name in sorted(modules):
-        module = modules[module_name]
-        category_summary = ", ".join(
-            f"{LINE_CATEGORY_LABELS[key]}={getattr(module, key)}"
-            for key in LINE_CATEGORY_KEYS
-        )
-        lines.append(
-            f"  - {module_name} "
-            f"(models: {len(module.declared_models)}, inherits: {len(module.inherited_models)}, "
-            f"total: {module.total_lines}, {category_summary}, "
-            f"complexity: {complexity_summary(module.complexity)})",
-        )
-
-    lines.append("")
-    lines.append("Codebase size by module (total of python code, JS code, python test, xml view, css, html):")
-    for module_name in sorted(
-        modules,
-        key=lambda name: (modules[name].total_lines, name),
-        reverse=True,
-    ):
-        module = modules[module_name]
-        category_summary = ", ".join(
-            f"{LINE_CATEGORY_LABELS[key]}={getattr(module, key)}"
-            for key in LINE_CATEGORY_KEYS
-        )
-        lines.append(
-            f"  - {module_name}: total={module.total_lines}, {category_summary}, "
-            f"complexity: {complexity_summary(module.complexity)}",
-        )
-
-    lines.append("")
-    lines.append("Manifest dependency graph (in-scope modules only):")
-    for module_name in sorted(modules):
-        module = modules[module_name]
-        dependencies = sorted(
-            dependency
-            for dependency in module.manifest_depends
-            if dependency in modules and dependency != module_name
-        )
-        deps_text = ", ".join(dependencies) if dependencies else "-"
-        lines.append(f"  - {module_name} -> {deps_text}")
-
-    lines.append("")
-    lines.append("Coupling graph points by source module:")
-    ranked_modules = sorted(
-        module_scores.items(),
-        key=lambda item: (
-            item[1]["outgoing_score"],
-            item[1]["outgoing_edges"],
-            item[0],
-        ),
-        reverse=True,
-    )
-    for module_name, stats in ranked_modules:
-        lines.append(
-            f"  - {module_name}: "
-            f"out_score={stats['outgoing_score']}, "
-            f"out_edges={stats['outgoing_edges']}, "
-            f"in_score={stats['incoming_score']}, "
-            f"private_calls={stats['private_calls']}",
-        )
-
-    lines.append("")
-    lines.append("Cross-module links:")
-    ranked_edges = sorted(
-        (edge for edge in edges.values() if edge.score > 0),
-        key=lambda edge: (edge.score, edge.source_module, edge.target_module),
-        reverse=True,
-    )
-    if not ranked_edges:
-        lines.append("  - none")
-    else:
-        for edge in ranked_edges:
-            kind_summary = ", ".join(
-                f"{kind}={count}"
-                for kind, count in sorted(edge.kind_counter.items())
-            )
-            lines.append(
-                f"  - {edge.source_module} -> {edge.target_module}: "
-                f"score={edge.score}; {kind_summary}",
-            )
-            for evidence in edge.evidence[:5]:
-                location = f"{evidence.file_path}:{evidence.line}" if evidence.line else evidence.file_path
-                lines.append(
-                    f"      * {evidence.kind}: {evidence.detail} [{location}]",
-                )
-
-    return "\n".join(lines)
-
-
-def render_json_report(
-    modules: dict[str, ModuleInfo],
-    edges: dict[tuple[str, str], CouplingEdge],
-    module_scores: dict[str, dict[str, int]],
-    config: ReportConfig,
-) -> dict[str, Any]:
-    """Render machine-readable JSON report."""
-    module_items = pipe(
-        sorted(modules.items()),
-        lambda items: [
-            build_module_payload(module_name, module, modules, module_scores)
-            for module_name, module in items
-        ],
-    )
-    edge_items = pipe(
-        (edge for edge in edges.values() if edge.score > 0),
-        lambda items: sorted(
-            items,
-            key=lambda value: (value.score, value.source_module, value.target_module),
-            reverse=True,
-        ),
-        lambda items: [build_edge_payload(edge) for edge in items],
-    )
-    return merge(
-        {
-        "project_label": config.project_label,
-        "report_title": config.report_title,
-        "scope_description": config.scope_description,
-        "module_filter": {
-            "all_modules": config.all_modules,
-            "module_prefixes": list(config.module_prefixes),
-            "include_modules": list(config.include_modules),
-        },
-        "module_count": len(modules),
-        "edge_count": len(edge_items),
-        "modules": module_items,
-        "edges": edge_items,
-        },
-        build_totals_payload(modules),
-    )
-
-
-def render_template(template_name: str, replacements: dict[str, str]) -> str:
-    """Load a text template and apply plain placeholder replacement."""
-    template_text = (TEMPLATES_DIR / template_name).read_text(encoding="utf-8")
-    for placeholder, value in replacements.items():
-        template_text = template_text.replace(placeholder, value)
-    return template_text
-
-
-def load_report_graph_js(graph_data_json: str) -> str:
-    """Load and render the external graph-view JavaScript template."""
-    return render_template(
-        "graph.js",
-        {"__GRAPH_DATA_JSON__": graph_data_json},
-    )
-
-
-def load_report_react_ui_js() -> str:
-    """Load the external React/Mantine UI template."""
-    return render_template("ui.js", {})
-
-
-def render_html_report(
-    modules: dict[str, ModuleInfo],
-    edges: dict[tuple[str, str], CouplingEdge],
-    module_scores: dict[str, dict[str, int]],
-    config: ReportConfig,
-) -> str:
-    """Render interactive HTML report with graph view."""
-    del module_scores
-    source_line_cache: dict[str, list[str] | None] = {}
-
-    def load_source_line(file_path: str, line_no: int) -> str:
-        """Return one physical line from source file."""
-        if line_no <= 0:
-            return ""
-        if file_path not in source_line_cache:
-            try:
-                source_line_cache[file_path] = Path(file_path).read_text(
-                    encoding="utf-8",
-                    errors="ignore",
-                ).splitlines()
-            except OSError:
-                source_line_cache[file_path] = None
-        source_lines = source_line_cache.get(file_path)
-        if not source_lines or line_no > len(source_lines):
-            return ""
-        return source_lines[line_no - 1].strip()
-
-    graph_payload = build_graph_payload(modules, edges, load_source_line)
-    graph_data_json = json.dumps(graph_payload, ensure_ascii=False).replace("</", "<\\/")
-    report_js_html = load_report_graph_js(graph_data_json)
-    report_react_js_html = load_report_react_ui_js()
-    return render_template(
-        "index.html",
-        {
-            "__REPORT_TITLE__": html.escape(config.report_title),
-            "__SCOPE_DESCRIPTION__": html.escape(config.scope_description),
-            "__REPORT_JS_HTML__": report_js_html,
-            "__REPORT_REACT_JS_HTML__": report_react_js_html,
-        },
-    )
-
-
-@click.command(
-    context_settings={"help_option_names": ["-h", "--help"]},
-    help=(
-        "Analyze coupling between Odoo modules. "
-        "Module selection and report branding can be overridden via CLI flags."
-    ),
-)
-@click.argument(
-    "addons_paths",
-    nargs=-1,
-    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
-    required=True,
-)
-@click.option(
-    "--module-prefix",
-    "module_prefixes",
-    multiple=True,
-    help=(
-        "Include modules whose technical name starts with this prefix. "
-        "Repeat the flag to include multiple prefixes."
-    ),
-)
-@click.option(
-    "--include-module",
-    "include_modules",
-    multiple=True,
-    help=(
-        "Include one exact module name even if it does not match any prefix. "
-        "Repeat the flag to include multiple modules."
-    ),
-)
-@click.option(
-    "--all-modules",
-    is_flag=True,
-    help="Disable name-based filtering and include every discovered Odoo module.",
-)
-@click.option(
-    "--project-label",
-    default="Project",
-    show_default=True,
-    help="Short human-readable project label used in text/HTML headings.",
-)
-@click.option(
-    "--report-title",
-    help="HTML/title heading for the report. Defaults to '<project-label> Coupling Report'.",
-)
-@click.option(
-    "--scope-description",
-    help="Short scope description shown near the top of the HTML report.",
-)
-@click.option(
-    "--json",
-    "json_output",
-    type=click.Path(dir_okay=False, path_type=Path),
-    help="Optional path for JSON report output.",
-)
-@click.option(
-    "--html",
-    "html_output",
-    type=click.Path(dir_okay=False, path_type=Path),
-    help="Optional path for interactive HTML report output.",
-)
-def main(
-    addons_paths: tuple[Path, ...],
-    module_prefixes: tuple[str, ...],
-    include_modules: tuple[str, ...],
-    all_modules: bool,
-    project_label: str,
-    report_title: str | None,
-    scope_description: str | None,
-    json_output: Path | None,
-    html_output: Path | None,
-) -> int:
-    """Run full coupling analysis pipeline."""
-    config = build_report_config(
-        project_label=project_label,
-        report_title=report_title,
-        scope_description=scope_description,
-        module_prefixes=module_prefixes,
-        include_modules=include_modules,
-        all_modules=all_modules,
-    )
-    artifacts = pipe(
-        addons_paths,
-        resolve_addons_paths,
-        validate_addons_paths,
-        discover_analysis_artifacts(config),
-        enrich_modules_with_code_analysis,
-        attach_provider_maps,
-        attach_edges_and_scores,
-    )
-
-    report = render_text_report(
-        artifacts.modules,
-        artifacts.edges,
-        artifacts.module_scores,
-        artifacts.config,
-    )
-    click.echo(report)
-
-    if json_output:
-        json_report = render_json_report(
-            artifacts.modules,
-            artifacts.edges,
-            artifacts.module_scores,
-            artifacts.config,
-        )
-        json_output.write_text(
-            json.dumps(json_report, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        click.echo(f"\nJSON report saved to: {json_output.resolve()}")
-
-    if html_output:
-        html_report = render_html_report(
-            artifacts.modules,
-            artifacts.edges,
-            artifacts.module_scores,
-            artifacts.config,
-        )
-        html_output.write_text(html_report, encoding="utf-8")
-        click.echo(f"HTML report saved to: {html_output.resolve()}")
-
-    return 0
-
-
-if __name__ == "__main__":
-    main()

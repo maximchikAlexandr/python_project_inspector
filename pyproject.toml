@@ -1,0 +1,48 @@
+[project]
+name = "python-project-inspector"
+version = "0.1.0"
+description = "Git history metrics pipeline for Python/Odoo projects"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1.7",
+    "complexipy>=5.6.1",
+    "duckdb>=1.1.0",
+    "Expression>=5.0.0",
+    "fastapi>=0.115.0",
+    "msgspec>=0.19.0",
+    "pydantic>=2.10.0",
+    "radon>=6.0.1",
+    "toolz>=0.12.1",
+    "uvicorn>=0.32.0",
+]
+
+[project.scripts]
+python-project-inspector = "python_project_inspector.cli.main:cli"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "ruff>=0.8.0", "httpx>=0.28.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/python_project_inspector"]
+
+[tool.hatch.build.targets.editable]
+packages = ["src/python_project_inspector"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
