@@ -1,5 +1,5 @@
 {
-  "name": "python-project-inspector-ui",
+  "name": "ppi-ui",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -11,11 +11,15 @@
   "dependencies": {
     "@mantine/charts": "^7.17.8",
     "@mantine/core": "^7.17.8",
+    "d3-force": "^3.0.0",
+    "d3-hierarchy": "^3.1.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.15.4"
   },
   "devDependencies": {
+    "@types/d3-force": "^3.0.10",
+    "@types/d3-hierarchy": "^3.1.7",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",

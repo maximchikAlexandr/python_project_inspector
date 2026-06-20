@@ -8,9 +8,9 @@ from unittest.mock import patch
 from click.testing import CliRunner
 from expression.core.result import Error
 
-from python_project_inspector.cli.main import cli
-from python_project_inspector.history import git
-from python_project_inspector.runtime.paths import lock_path
+from ppi.cli.main import cli
+from ppi.history import git
+from ppi.runtime.paths import ensure_analysis_dir, writer_lock_path
 
 
 def test_single_commit_repo_analyzes(tmp_path: Path):
@@ -66,7 +66,7 @@ def test_analyze_continues_after_commit_failure(mini_repo: Path, tmp_path: Path)
             return Error("simulated commit metadata failure")
         return original_read(repo_path, commit_hash)
 
-    with patch("python_project_inspector.history.walker.git.read_commit_info", side_effect=_fail_last):
+    with patch("ppi.history.walker.git.read_commit_info", side_effect=_fail_last):
         result = runner.invoke(
             cli,
             [
@@ -115,13 +115,13 @@ def test_doctor_recovers_stale_worktree(mini_repo: Path, tmp_path: Path):
 
 def test_doctor_recover_stale_skips_worktree_when_locked(mini_repo: Path, tmp_path: Path):
     """Doctor --recover-stale does not remove worktree while analyze holds the lock."""
-    import os
 
     analysis_dir = tmp_path / "analysis"
     wt = analysis_dir / "worktree"
     analysis_dir.mkdir(parents=True)
     wt.mkdir()
-    lock_file = lock_path(analysis_dir)
+    lock_file = writer_lock_path(mini_repo)
+    ensure_analysis_dir(lock_file.parent)
     lock_file.write_text(str(os.getpid()), encoding="utf-8")
     runner = CliRunner()
     try:

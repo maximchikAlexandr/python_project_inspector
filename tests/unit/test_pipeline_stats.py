@@ -1,6 +1,6 @@
 """Unit tests for pure metric transforms in the Odoo pipeline."""
 
-from python_project_inspector.core.odoo.pipeline import (
+from ppi.core.odoo.pipeline import (
     CouplingEdge,
     build_distribution_stats,
     edge_score,

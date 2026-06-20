@@ -3,8 +3,8 @@
 import subprocess
 from pathlib import Path
 
-from python_project_inspector.history import git
-from python_project_inspector.history.walker import cleanup_worktree, walk_history
+from ppi.history import git
+from ppi.history.walker import cleanup_worktree, walk_history
 
 
 def test_history_walk_non_merge_commits(mini_repo: Path, tmp_path: Path):

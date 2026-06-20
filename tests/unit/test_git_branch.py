@@ -1,10 +1,9 @@
 """Tests for git branch resolution."""
 
+import subprocess
 from pathlib import Path
 
-import subprocess
-
-from python_project_inspector.history import git
+from ppi.history import git
 
 
 def test_resolve_branch_head_returns_branch_name(mini_repo: Path):

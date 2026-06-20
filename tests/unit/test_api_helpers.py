@@ -2,7 +2,7 @@
 
 import pytest
 
-from python_project_inspector.runtime.names import parse_module_file_path
+from ppi.runtime.names import parse_module_file_path
 
 
 def test_parse_module_file_path_splits_module_and_path():

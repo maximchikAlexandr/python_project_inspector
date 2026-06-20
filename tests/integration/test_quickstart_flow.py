@@ -5,7 +5,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from python_project_inspector.cli.main import cli
+from ppi.cli.main import cli
 
 
 def test_quickstart_analyze_query_serve_flow(mini_repo: Path, tmp_path: Path):
@@ -58,10 +58,10 @@ def test_quickstart_analyze_query_serve_flow(mini_repo: Path, tmp_path: Path):
 
     from fastapi.testclient import TestClient
 
-    from python_project_inspector.runtime.paths import lock_path, store_path
-    from python_project_inspector.server.app import create_app, _static_dir
+    from ppi.runtime.paths import store_path, writer_lock_path
+    from ppi.server.app import _static_dir, create_app
 
-    client = TestClient(create_app(store_path(analysis_dir), lock_path(analysis_dir)))
+    client = TestClient(create_app(store_path(mini_repo), writer_lock_path(mini_repo)))
     assert client.get("/api/status").status_code == 200
     assert client.get("/api/catalog?level=module").status_code == 200
     assert client.get("/api/hotspots").status_code == 200

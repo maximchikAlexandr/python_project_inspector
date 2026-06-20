@@ -2,14 +2,14 @@
 
 from pathlib import Path
 
-from python_project_inspector.core.contracts import (
+from ppi.core.contracts import (
     AnalysisBatch,
     CommitRef,
     Distribution,
     FailureRecord,
     ModuleAggregate,
 )
-from python_project_inspector.storage.writer import StoreWriter
+from ppi.storage.writer import StoreWriter
 
 
 def _commit(order: int = 0) -> CommitRef:

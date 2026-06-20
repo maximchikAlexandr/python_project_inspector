@@ -2,10 +2,43 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+ODOO_SAMPLE_SRC = FIXTURES_DIR / "odoo_sample"
+
+
+def _init_git_repo(repo: Path, *, extra_commit: bool = False) -> None:
+    """Initialize a git repository with one or two commits."""
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "init"], check=True, capture_output=True)
+    if extra_commit:
+        order_file = repo / "linked_module" / "models" / "order.py"
+        order_file.write_text(
+            order_file.read_text(encoding="utf-8").replace(
+                'partner_id = fields.Many2one("base.partner")',
+                'partner_id = fields.Many2one("base.partner")\n\n    note = fields.Char()',
+            ),
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-m", "extend order"], check=True, capture_output=True)
+
+
+@pytest.fixture()
+def odoo_sample_repo(tmp_path: Path) -> Path:
+    """Copy the committed Odoo sample fixture into a temporary git repository."""
+    repo = tmp_path / "odoo_sample"
+    shutil.copytree(ODOO_SAMPLE_SRC, repo, ignore=shutil.ignore_patterns(".ppi"))
+    _init_git_repo(repo, extra_commit=True)
+    return repo
 
 
 @pytest.fixture()

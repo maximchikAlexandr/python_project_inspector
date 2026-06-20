@@ -362,6 +362,48 @@ wheels = [
 ]
 
 [[package]]
+name = "ppi"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "click" },
+    { name = "complexipy" },
+    { name = "duckdb" },
+    { name = "expression" },
+    { name = "fastapi" },
+    { name = "msgspec" },
+    { name = "pydantic" },
+    { name = "radon" },
+    { name = "toolz" },
+    { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.1.7" },
+    { name = "complexipy", specifier = ">=5.6.1" },
+    { name = "duckdb", specifier = ">=1.1.0" },
+    { name = "expression", specifier = ">=5.0.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.0" },
+    { name = "msgspec", specifier = ">=0.19.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
+    { name = "radon", specifier = ">=6.0.1" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
+    { name = "toolz", specifier = ">=0.12.1" },
+    { name = "uvicorn", specifier = ">=0.32.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "pydantic"
 version = "2.13.4"
 source = { registry = "https://pypi.org/simple" }
@@ -502,48 +544,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/e4/47/b9efed96c114afcfa
 wheels = [
     { url = "https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl", hash = "sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c", size = 386536, upload-time = "2026-06-19T10:58:31.347Z" },
 ]
-
-[[package]]
-name = "python-project-inspector"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "click" },
-    { name = "complexipy" },
-    { name = "duckdb" },
-    { name = "expression" },
-    { name = "fastapi" },
-    { name = "msgspec" },
-    { name = "pydantic" },
-    { name = "radon" },
-    { name = "toolz" },
-    { name = "uvicorn" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "httpx" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "click", specifier = ">=8.1.7" },
-    { name = "complexipy", specifier = ">=5.6.1" },
-    { name = "duckdb", specifier = ">=1.1.0" },
-    { name = "expression", specifier = ">=5.0.0" },
-    { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.0" },
-    { name = "msgspec", specifier = ">=0.19.0" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "radon", specifier = ">=6.0.1" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
-    { name = "toolz", specifier = ">=0.12.1" },
-    { name = "uvicorn", specifier = ">=0.32.0" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "radon"

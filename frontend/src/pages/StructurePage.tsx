@@ -1,6 +1,6 @@
 import { LineChart } from "@mantine/charts";
-import { Group, Paper, Select, Stack, Table, Text, Title } from "@mantine/core";
-import { useEffect, useMemo, useState } from "react";
+import { Checkbox, Group, Paper, Select, Stack, Table, Text, Title } from "@mantine/core";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   fetchCommits,
@@ -16,7 +16,10 @@ export function StructurePage() {
   const [structurePoints, setStructurePoints] = useState<StructurePoint[]>([]);
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   const [edges, setEdges] = useState<EdgeRow[]>([]);
+  const [includeZeroScore, setIncludeZeroScore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const edgesGeneration = useRef(0);
+  const timeseriesGeneration = useRef(0);
 
   const commitOptions = useMemo(
     () =>
@@ -28,39 +31,74 @@ export function StructurePage() {
   );
 
   useEffect(() => {
-    Promise.all([fetchCommits(), fetchStructureTimeseries()])
-      .then(([commitRows, structure]) => {
-        setCommits(commitRows);
-        setStructurePoints(structure.points);
-        const defaultCommit =
-          [...structure.points].reverse().find((point) => point.edge_count > 0)?.commit_hash
-          ?? commitRows[commitRows.length - 1]?.commit_hash
-          ?? null;
-        setSelectedCommit(defaultCommit);
-      })
+    fetchCommits()
+      .then(setCommits)
       .catch((err: Error) => setError(err.message));
   }, []);
+
+  useEffect(() => {
+    const generation = timeseriesGeneration.current + 1;
+    timeseriesGeneration.current = generation;
+    fetchStructureTimeseries(includeZeroScore)
+      .then((structure) => {
+        if (generation !== timeseriesGeneration.current) {
+          return;
+        }
+        setStructurePoints(structure.points);
+        setSelectedCommit((current) => {
+          if (current && structure.points.some((point) => point.commit_hash === current)) {
+            return current;
+          }
+          return (
+            [...structure.points].reverse().find((point) => point.edge_count > 0)?.commit_hash
+            ?? commits[commits.length - 1]?.commit_hash
+            ?? null
+          );
+        });
+      })
+      .catch((err: Error) => {
+        if (generation === timeseriesGeneration.current) {
+          setError(err.message);
+        }
+      });
+  }, [commits, includeZeroScore]);
 
   useEffect(() => {
     if (!selectedCommit) {
       return;
     }
-    fetchEdges(selectedCommit, 1)
-      .then((payload) => setEdges(payload.edges))
-      .catch((err: Error) => setError(err.message));
-  }, [selectedCommit]);
+    const generation = edgesGeneration.current + 1;
+    edgesGeneration.current = generation;
+    fetchEdges(selectedCommit, includeZeroScore)
+      .then((payload) => {
+        if (generation === edgesGeneration.current) {
+          setEdges(payload.edges);
+        }
+      })
+      .catch((err: Error) => {
+        if (generation === edgesGeneration.current) {
+          setError(err.message);
+        }
+      });
+  }, [includeZeroScore, selectedCommit]);
 
   const chartData = structurePoints.map((point) => ({
     order: point.commit_order,
     edge_count: point.edge_count,
     total_score: point.total_score,
-    hash: point.commit_hash.slice(0, 8),
   }));
+
+  const selectedPoint = structurePoints.find((point) => point.commit_hash === selectedCommit);
 
   return (
     <Stack gap="md">
       <Title order={3}>Structure over time</Title>
       {error ? <Text c="red">{error}</Text> : null}
+      <Checkbox
+        label="Include zero-score edges"
+        checked={includeZeroScore}
+        onChange={(event) => setIncludeZeroScore(event.currentTarget.checked)}
+      />
       <Paper withBorder p="md">
         <Title order={4} mb="md">
           Coupling edges per commit
@@ -91,6 +129,9 @@ export function StructurePage() {
           searchable
           w={420}
         />
+        <Text size="sm" c="dimmed">
+          Chart edges: {selectedPoint?.edge_count ?? "—"} | Table rows: {edges.length}
+        </Text>
       </Group>
       <Paper withBorder p="md">
         <Title order={4} mb="sm">
@@ -105,7 +146,9 @@ export function StructurePage() {
                 <Table.Th>Source</Table.Th>
                 <Table.Th>Target</Table.Th>
                 <Table.Th>Score</Table.Th>
-                <Table.Th>Kinds</Table.Th>
+                <Table.Th>Kind occ.</Table.Th>
+                <Table.Th>Evidence</Table.Th>
+                <Table.Th>Breakdown</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -114,10 +157,12 @@ export function StructurePage() {
                   <Table.Td>{edge.source}</Table.Td>
                   <Table.Td>{edge.target}</Table.Td>
                   <Table.Td>{edge.score}</Table.Td>
+                  <Table.Td>{edge.kind_occurrence_count ?? 0}</Table.Td>
+                  <Table.Td>{edge.evidence_count ?? "—"}</Table.Td>
                   <Table.Td>
-                    {Object.entries(edge.kinds)
-                      .map(([kind, count]) => `${kind} (${count})`)
-                      .join(", ") || "—"}
+                    {edge.breakdown
+                      ? `${edge.breakdown.total} (mr=${edge.breakdown.model_reuse})`
+                      : "—"}
                   </Table.Td>
                 </Table.Tr>
               ))}

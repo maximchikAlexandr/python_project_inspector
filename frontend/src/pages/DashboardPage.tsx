@@ -8,7 +8,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   fetchCatalog,
@@ -44,6 +44,8 @@ export function DashboardPage() {
   const [valueHotspots, setValueHotspots] = useState<HotspotItem[]>([]);
   const [growthHotspots, setGrowthHotspots] = useState<HotspotItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const hotspotsGeneration = useRef(0);
+  const seriesGeneration = useRef(0);
 
   const nameOptions = useMemo(
     () => names.map((name) => ({ value: name, label: name })),
@@ -67,32 +69,50 @@ export function DashboardPage() {
   }, [names, selectedName]);
 
   useEffect(() => {
+    const generation = hotspotsGeneration.current + 1;
+    hotspotsGeneration.current = generation;
     setError(null);
     Promise.all([
-      fetchHotspots({ level, metric, by: "value", limit: 20 }),
-      fetchHotspots({ level, metric, by: "growth", limit: 20 }),
+      fetchHotspots({ level, metric, by: "value", limit: 20, agg }),
+      fetchHotspots({ level, metric, by: "growth", limit: 20, agg }),
     ])
       .then(([byValue, byGrowth]) => {
+        if (generation !== hotspotsGeneration.current) {
+          return;
+        }
         setValueHotspots(byValue.items);
         setGrowthHotspots(byGrowth.items);
       })
-      .catch((err: Error) => setError(err.message));
-  }, [level, metric]);
+      .catch((err: Error) => {
+        if (generation === hotspotsGeneration.current) {
+          setError(err.message);
+        }
+      });
+  }, [agg, level, metric]);
 
   useEffect(() => {
     if (!selectedName || !names.includes(selectedName)) {
       return;
     }
+    const generation = seriesGeneration.current + 1;
+    seriesGeneration.current = generation;
     setError(null);
     Promise.all([
       fetchTimeseries({ level, metric, name: selectedName, agg }),
       fetchTimeseries({ level, metric: "lines", name: selectedName }),
     ])
       .then(([complexity, size]) => {
+        if (generation !== seriesGeneration.current) {
+          return;
+        }
         setComplexityPoints(complexity.series[0]?.points ?? []);
         setSizePoints(size.series[0]?.points ?? []);
       })
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => {
+        if (generation === seriesGeneration.current) {
+          setError(err.message);
+        }
+      });
   }, [agg, level, metric, names, selectedName]);
 
   return (

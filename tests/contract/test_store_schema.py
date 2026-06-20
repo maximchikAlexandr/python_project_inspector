@@ -4,7 +4,7 @@ from pathlib import Path
 
 import duckdb
 
-from python_project_inspector.storage.schema import DDL_STATEMENTS, SCHEMA_VERSION, initialize_schema
+from ppi.storage.schema import DDL_STATEMENTS, SCHEMA_VERSION, initialize_schema
 
 
 def test_schema_tables_exist(tmp_path: Path):
@@ -23,5 +23,9 @@ def test_schema_tables_exist(tmp_path: Path):
     assert "file_metric" in tables
     assert "module_aggregate" in tables
     assert "coupling_edge" in tables
-    assert SCHEMA_VERSION == 1
-    assert len(DDL_STATEMENTS) >= 8
+    assert "coupling_edge_breakdown" in tables
+    assert "coupling_edge_evidence" in tables
+    assert "module_model" in tables
+    assert "module_manifest_depend" in tables
+    assert SCHEMA_VERSION == 2
+    assert len(DDL_STATEMENTS) >= 12

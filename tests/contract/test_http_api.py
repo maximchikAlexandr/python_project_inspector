@@ -6,10 +6,10 @@ from pathlib import Path
 from click.testing import CliRunner
 from fastapi.testclient import TestClient
 
-from python_project_inspector.cli.main import cli
-from python_project_inspector.runtime import lock as project_lock
-from python_project_inspector.runtime.paths import lock_path, store_path
-from python_project_inspector.server.app import create_app
+from ppi.cli.main import cli
+from ppi.runtime import lock as project_lock
+from ppi.runtime.paths import store_path, writer_lock_path
+from ppi.server.app import create_app
 
 
 def _analyze_fixture(mini_repo: Path, analysis_dir: Path) -> TestClient:
@@ -27,28 +27,32 @@ def _analyze_fixture(mini_repo: Path, analysis_dir: Path) -> TestClient:
         ],
     )
     assert analyze.exit_code == 0, analyze.output
-    return TestClient(create_app(store_path(analysis_dir), lock_path(analysis_dir)))
+    return TestClient(create_app(store_path(mini_repo), writer_lock_path(mini_repo)))
 
 
 def test_http_status_without_store(tmp_path: Path):
     """Status endpoint works before any analysis run."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
     analysis_dir = tmp_path / "analysis"
     analysis_dir.mkdir()
-    client = TestClient(create_app(store_path(analysis_dir), lock_path(analysis_dir)))
+    client = TestClient(create_app(store_path(repo), writer_lock_path(repo)))
     status = client.get("/api/status")
     assert status.status_code == 200
     body = status.json()
     assert body["store_present"] is False
-    assert body["schema_version"] == 1
-    assert body["expected_schema_version"] == 1
+    assert body["schema_version"] == 2
+    assert body["expected_schema_version"] == 2
     assert body["schema_compatible"] is True
 
 
 def test_http_store_missing_returns_503(tmp_path: Path):
     """Data endpoints return 503 when the store file is absent."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
     analysis_dir = tmp_path / "analysis"
     analysis_dir.mkdir()
-    client = TestClient(create_app(store_path(analysis_dir), lock_path(analysis_dir)))
+    client = TestClient(create_app(store_path(repo), writer_lock_path(repo)))
     response = client.get("/api/commits")
     assert response.status_code == 503
     assert response.json()["detail"] == "store not found"
@@ -58,7 +62,7 @@ def test_http_locked_store_returns_409(mini_repo: Path, tmp_path: Path):
     """Data endpoints return 409 while a writer holds the lock."""
     analysis_dir = tmp_path / "analysis"
     client = _analyze_fixture(mini_repo, analysis_dir)
-    lock_file = lock_path(analysis_dir)
+    lock_file = writer_lock_path(mini_repo)
     lock_file.write_text(str(os.getpid()), encoding="utf-8")
     try:
         assert project_lock.is_locked(lock_file)
@@ -77,8 +81,8 @@ def test_http_status_and_commits(mini_repo: Path, tmp_path: Path):
     body = status.json()
     assert body["commit_count"] == 2
     assert body["store_present"] is True
-    assert body["schema_version"] == 1
-    assert body["expected_schema_version"] == 1
+    assert body["schema_version"] == 2
+    assert body["expected_schema_version"] == 2
     assert body["schema_compatible"] is True
     assert body["project_id"]
     assert body["branch"]

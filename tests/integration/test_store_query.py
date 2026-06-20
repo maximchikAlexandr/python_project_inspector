@@ -4,7 +4,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from python_project_inspector.cli.main import cli
+from ppi.cli.main import cli
 
 
 def test_analyze_persist_and_query(mini_repo: Path, tmp_path: Path):

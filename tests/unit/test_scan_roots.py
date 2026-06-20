@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from python_project_inspector.history.walker import _resolve_scan_roots
+from ppi.history.walker import _resolve_scan_roots
 
 
 def test_resolve_scan_roots_defaults_to_worktree(tmp_path: Path):

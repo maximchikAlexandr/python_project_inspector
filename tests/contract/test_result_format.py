@@ -1,6 +1,6 @@
 """Contract tests for AnalysisBatch JSONL format."""
 
-from python_project_inspector.core.contracts import (
+from ppi.core.contracts import (
     AnalysisBatch,
     CommitRef,
     Distribution,

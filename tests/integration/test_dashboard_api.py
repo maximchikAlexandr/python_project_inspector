@@ -5,9 +5,9 @@ from pathlib import Path
 from click.testing import CliRunner
 from fastapi.testclient import TestClient
 
-from python_project_inspector.cli.main import cli
-from python_project_inspector.runtime.paths import lock_path, store_path
-from python_project_inspector.server.app import create_app
+from ppi.cli.main import cli
+from ppi.runtime.paths import store_path, writer_lock_path
+from ppi.server.app import create_app
 
 
 def _client(mini_repo: Path, analysis_dir: Path) -> TestClient:
@@ -17,7 +17,7 @@ def _client(mini_repo: Path, analysis_dir: Path) -> TestClient:
         ["--repo", str(mini_repo), "--branch", "HEAD", "--analysis-dir", str(analysis_dir), "analyze"],
     )
     assert analyze.exit_code == 0, analyze.output
-    return TestClient(create_app(store_path(analysis_dir), lock_path(analysis_dir)))
+    return TestClient(create_app(store_path(mini_repo), writer_lock_path(mini_repo)))
 
 
 def test_dashboard_api_views_from_store(mini_repo: Path, tmp_path: Path):
