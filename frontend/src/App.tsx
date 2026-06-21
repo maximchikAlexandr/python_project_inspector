@@ -6,6 +6,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { SnapshotPage } from "./pages/SnapshotPage";
 import { StatusPage } from "./pages/StatusPage";
 import { StructurePage } from "./pages/StructurePage";
+import { t } from "./i18n";
 
 function AppTabs() {
   const { activeTab, setActiveTab } = useAppNavigation();
@@ -13,11 +14,11 @@ function AppTabs() {
   return (
     <Tabs value={activeTab} onChange={(value) => setActiveTab((value ?? "snapshot") as AppTab)}>
       <Tabs.List mb="md">
-        <Tabs.Tab value="snapshot">Report</Tabs.Tab>
-        <Tabs.Tab value="dashboard">Dashboard</Tabs.Tab>
-        <Tabs.Tab value="structure">Structure</Tabs.Tab>
-        <Tabs.Tab value="analytics">Analytics</Tabs.Tab>
-        <Tabs.Tab value="status">Status</Tabs.Tab>
+        <Tabs.Tab value="snapshot">{t("tabs.report", "Report")}</Tabs.Tab>
+        <Tabs.Tab value="dashboard">{t("tabs.dashboard", "Dashboard")}</Tabs.Tab>
+        <Tabs.Tab value="structure">{t("tabs.structure", "Structure")}</Tabs.Tab>
+        <Tabs.Tab value="analytics">{t("tabs.analytics", "Analytics")}</Tabs.Tab>
+        <Tabs.Tab value="status">{t("tabs.status", "Status")}</Tabs.Tab>
       </Tabs.List>
       <Tabs.Panel value="snapshot" keepMounted={false}>
         <SnapshotPage />

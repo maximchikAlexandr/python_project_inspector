@@ -11,44 +11,18 @@ import {
   fetchTimeseries,
   type CommitRow,
   type EdgeKindPoint,
-  type ModuleSnapshot,
   type RelationsDiffChange,
 } from "../api/client";
-import { CHART_CATEGORY_COLORS, edgeKindLabel, LINE_CATEGORIES } from "../registry/odooProfile";
+import { toCommitSelectOptionsShort } from "../transforms/commitOptions";
+import {
+  buildComplexityDiff,
+  categoryChartFromTimeseries,
+  edgeKindChartFromPoints,
+  fileCountSeriesFromTimeseries,
+  moduleSelectOptions,
+  type ComplexityDiffRow,
+} from "../transforms/analyticsTransforms";
 import { formatMetricValue } from "../utils/metricFormat";
-
-type ComplexityDiffRow = {
-  module_name: string;
-  cyclomatic_a: number;
-  cyclomatic_b: number;
-  cognitive_a: number;
-  cognitive_b: number;
-  jones_a: number;
-  jones_b: number;
-};
-
-function buildComplexityDiff(modulesA: ModuleSnapshot[], modulesB: ModuleSnapshot[]): ComplexityDiffRow[] {
-  const byNameB = new Map(modulesB.map((module) => [module.module_name, module]));
-  return modulesA
-    .filter((module) => byNameB.has(module.module_name))
-    .map((module) => {
-      const other = byNameB.get(module.module_name)!;
-      return {
-        module_name: module.module_name,
-        cyclomatic_a: module.cyclomatic.median,
-        cyclomatic_b: other.cyclomatic.median,
-        cognitive_a: module.cognitive.median,
-        cognitive_b: other.cognitive.median,
-        jones_a: module.jones.median,
-        jones_b: other.jones.median,
-      };
-    })
-    .sort(
-      (left, right) =>
-        Math.abs(right.cyclomatic_b - right.cyclomatic_a)
-        - Math.abs(left.cyclomatic_b - left.cyclomatic_a),
-    );
-}
 
 export function AnalyticsPage() {
   const [commits, setCommits] = useState<CommitRow[]>([]);
@@ -67,41 +41,9 @@ export function AnalyticsPage() {
   const moduleGeneration = useRef(0);
   const diffGeneration = useRef(0);
 
-  const commitOptions = useMemo(
-    () =>
-      commits.map((row) => ({
-        value: row.commit_hash,
-        label: `#${row.commit_order} ${row.commit_hash.slice(0, 8)}`,
-      })),
-    [commits],
-  );
-
-  const moduleOptions = useMemo(
-    () => moduleNames.map((name) => ({ value: name, label: name })),
-    [moduleNames],
-  );
-
-  const edgeKindChart = useMemo(() => {
-    const orders = [...new Set(edgeKindPoints.map((point) => point.commit_order))].sort((a, b) => a - b);
-    const kinds = [...new Set(edgeKindPoints.map((point) => point.kind))].sort();
-    return orders.map((order) => {
-      const row: Record<string, number | string> = { order };
-      for (const kind of kinds) {
-        row[kind] = edgeKindPoints.find((point) => point.commit_order === order && point.kind === kind)?.value ?? 0;
-      }
-      return row;
-    });
-  }, [edgeKindPoints]);
-
-  const edgeKindSeries = useMemo(
-    () =>
-      [...new Set(edgeKindPoints.map((point) => point.kind))].sort().map((kind, index) => ({
-        name: kind,
-        label: edgeKindLabel(kind),
-        color: CHART_CATEGORY_COLORS[index % CHART_CATEGORY_COLORS.length],
-      })),
-    [edgeKindPoints],
-  );
+  const commitOptions = useMemo(() => toCommitSelectOptionsShort(commits), [commits]);
+  const moduleOptions = useMemo(() => moduleSelectOptions(moduleNames), [moduleNames]);
+  const edgeKindChartData = useMemo(() => edgeKindChartFromPoints(edgeKindPoints), [edgeKindPoints]);
 
   useEffect(() => {
     const generation = bootstrapGeneration.current + 1;
@@ -143,31 +85,10 @@ export function AnalyticsPage() {
         if (generation !== moduleGeneration.current) {
           return;
         }
-        const orders = [
-          ...new Set(categories.series.flatMap((series) => series.points.map((point) => point.commit_order))),
-        ].sort((a, b) => a - b);
-        const chartRows = orders.map((order) => {
-          const row: Record<string, number | string> = { order };
-          categories.series.forEach((series) => {
-            const category = series.name.split("/").pop() ?? series.name;
-            row[category] = Number(series.points.find((point) => point.commit_order === order)?.value ?? 0);
-          });
-          return row;
-        });
+        const { chartRows, series } = categoryChartFromTimeseries(categories);
         setCategoryChart(chartRows);
-        setCategorySeries(
-          LINE_CATEGORIES.map(({ key, label }, index) => ({
-            name: key,
-            label,
-            color: CHART_CATEGORY_COLORS[index % CHART_CATEGORY_COLORS.length],
-          })),
-        );
-        setFileCountSeries(
-          fileCount.series[0]?.points.map((point) => ({
-            order: point.commit_order,
-            value: Number(point.value ?? 0),
-          })) ?? [],
-        );
+        setCategorySeries(series);
+        setFileCountSeries(fileCountSeriesFromTimeseries(fileCount));
         setEdgeKindPoints(edgeKinds.points);
       })
       .catch((err: Error) => {
@@ -246,8 +167,15 @@ export function AnalyticsPage() {
         <Title order={5} mb="sm">
           Edge kind timeseries
         </Title>
-        {edgeKindSeries.length ? (
-          <LineChart h={240} data={edgeKindChart} dataKey="order" series={edgeKindSeries} withLegend withTooltip />
+        {edgeKindChartData.series.length ? (
+          <LineChart
+            h={240}
+            data={edgeKindChartData.chartRows}
+            dataKey="order"
+            series={edgeKindChartData.series}
+            withLegend
+            withTooltip
+          />
         ) : (
           <Text c="dimmed">No edge-kind history stored yet.</Text>
         )}

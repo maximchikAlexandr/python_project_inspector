@@ -2,8 +2,17 @@ import { hierarchy, treemap, treemapSquarify } from "d3-hierarchy";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { FileSnapshot } from "../api/client";
-import { LINE_CATEGORIES, type LineCategoryKey } from "../registry/odooProfile";
-import { compactLines, formatCodeLines, formatStatsLine } from "../utils/metricFormat";
+import { type LineCategoryKey } from "../registry/odooProfile";
+import { compactLines } from "../utils/metricFormat";
+import {
+  fileTooltip,
+  folderColor,
+  isFileSnapshot,
+  TREEMAP_MIN_TEXT_HEIGHT,
+  TREEMAP_MIN_TEXT_WIDTH,
+  truncateTreemapText,
+  treemapLegendFolders,
+} from "../transforms/treemapTransforms";
 
 type Props = {
   files: FileSnapshot[];
@@ -24,51 +33,6 @@ type TreemapLeaf = {
   y0: number;
   y1: number;
 };
-
-const FOLDER_COLORS = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc949", "#af7aa1", "#ff9da7"];
-const MIN_TEXT_WIDTH = 60;
-const MIN_TEXT_HEIGHT = 28;
-
-function categoryLabel(category: string): string {
-  return LINE_CATEGORIES.find(({ key }) => key === category)?.label ?? category;
-}
-
-function fileTooltip(file: FileSnapshot): string {
-  const parts = [
-    `${file.module_name}/${file.relative_path}`,
-    `lines=${formatCodeLines(file.lines)}`,
-    categoryLabel(file.category),
-    `CC ${formatStatsLine(file.cyclomatic)}`,
-    `cognitive ${formatStatsLine(file.cognitive)}`,
-    `Jones ${formatStatsLine(file.jones)}`,
-  ];
-  if (file.parse_error) {
-    parts.push(`parse_error=${file.parse_error}`);
-  }
-  return parts.join(" | ");
-}
-
-function folderColor(topFolder: string): string {
-  let hash = 0;
-  for (let index = 0; index < topFolder.length; index += 1) {
-    hash = topFolder.charCodeAt(index) + ((hash << 5) - hash);
-  }
-  return FOLDER_COLORS[Math.abs(hash) % FOLDER_COLORS.length];
-}
-
-function isFileSnapshot(value: TreemapRoot | FileSnapshot): value is FileSnapshot {
-  return "relative_path" in value;
-}
-
-function truncateText(text: string, maxChars: number): string | null {
-  if (maxChars < 3) {
-    return null;
-  }
-  if (text.length <= maxChars) {
-    return text;
-  }
-  return `${text.slice(0, Math.max(1, maxChars - 1))}…`;
-}
 
 export function FileTreemap({ files, lineCategories, selectedPath, onSelect, onHover }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -124,7 +88,7 @@ export function FileTreemap({ files, lineCategories, selectedPath, onSelect, onH
       });
   }, [filtered, size.height, size.width]);
 
-  const legend = [...new Set(filtered.map((file) => file.top_folder))];
+  const legend = treemapLegendFolders(filtered);
 
   if (!filtered.length) {
     return (
@@ -168,8 +132,8 @@ export function FileTreemap({ files, lineCategories, selectedPath, onSelect, onH
           const centerY = leaf.y0 + innerH / 2;
           const maxChars = Math.floor((innerW - 6) / 6.8);
           const basename = file.relative_path.split("/").pop() ?? file.relative_path;
-          const displayName = truncateText(basename, maxChars);
-          const displayLines = truncateText(compactLines(file.lines), maxChars);
+          const displayName = truncateTreemapText(basename, maxChars);
+          const displayLines = truncateTreemapText(compactLines(file.lines), maxChars);
           return (
             <g
               key={pathKey}
@@ -187,7 +151,7 @@ export function FileTreemap({ files, lineCategories, selectedPath, onSelect, onH
                 stroke={selected ? "#228be6" : "#fff"}
                 strokeWidth={selected ? 2 : 1}
               />
-              {innerW >= MIN_TEXT_WIDTH && innerH >= MIN_TEXT_HEIGHT ? (
+              {innerW >= TREEMAP_MIN_TEXT_WIDTH && innerH >= TREEMAP_MIN_TEXT_HEIGHT ? (
                 <>
                   {displayName ? (
                     <text

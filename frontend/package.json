@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "i18n:extract": "node ./scripts/i18next-cli.mjs extract",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -13,9 +14,12 @@
     "@mantine/core": "^7.17.8",
     "d3-force": "^3.0.0",
     "d3-hierarchy": "^3.1.2",
+    "i18next": "^26.3.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "recharts": "^2.15.4"
+    "react-i18next": "^17.0.8",
+    "recharts": "^2.15.4",
+    "remeda": "^2.39.0"
   },
   "devDependencies": {
     "@types/d3-force": "^3.0.10",
@@ -23,6 +27,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "i18next-cli": "^1.64.1",
     "typescript": "^5.7.3",
     "vite": "^6.0.7"
   }

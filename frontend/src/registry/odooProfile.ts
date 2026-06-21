@@ -1,3 +1,5 @@
+import { filter, map, pipe, sumBy } from "remeda";
+
 export type LineCategoryKey =
   | "python_lines"
   | "js_lines"
@@ -38,11 +40,40 @@ export const BRIGHTNESS_CRITERIA: { key: BrightnessCriterion; label: string; wei
   { key: "python_file_count", label: "Python file count", weight: 1.0 },
 ];
 
-export const DEFAULT_BRIGHTNESS_CRITERIA: BrightnessCriterion[] = BRIGHTNESS_CRITERIA.map(
+export const DEFAULT_BRIGHTNESS_CRITERIA: BrightnessCriterion[] = map(
+  BRIGHTNESS_CRITERIA,
   ({ key }) => key,
 );
 
 export const CHART_CATEGORY_COLORS = ["blue.6", "orange.6", "teal.6", "grape.6", "cyan.6", "pink.6"];
+
+export type GraphBreakdownKind = "model_reuse" | "extension_or_method" | "view" | "field_property";
+export type GraphEdgeKind = GraphBreakdownKind;
+
+export const GRAPH_BREAKDOWN_KINDS: {
+  key: GraphBreakdownKind;
+  label: string;
+  color: string;
+}[] = [
+  { key: "model_reuse", label: "Model reuse", color: "#2563eb" },
+  { key: "extension_or_method", label: "Extension / method", color: "#ea580c" },
+  { key: "view", label: "View", color: "#0d9488" },
+  { key: "field_property", label: "Field / property", color: "#9333ea" },
+];
+
+export const GRAPH_EDGE_KIND_KEYS: GraphEdgeKind[] = GRAPH_BREAKDOWN_KINDS.map(({ key }) => key);
+
+export function graphBreakdownKindMeta(edges: { breakdown: Record<string, number> }[]): typeof GRAPH_BREAKDOWN_KINDS {
+  const present = new Set<GraphBreakdownKind>();
+  for (const edge of edges) {
+    for (const { key } of GRAPH_BREAKDOWN_KINDS) {
+      if ((edge.breakdown[key] ?? 0) > 0) {
+        present.add(key);
+      }
+    }
+  }
+  return filter(GRAPH_BREAKDOWN_KINDS, ({ key }) => present.has(key));
+}
 
 export const EDGE_KIND_LABELS: Record<string, string> = {
   python__inherit: "Model extension (_inherit)",
@@ -99,7 +130,7 @@ export function lineCategoryTotal(
   if (!active.size) {
     return 0;
   }
-  return [...active].reduce((sum, key) => sum + (categories[key] ?? 0), 0);
+  return sumBy([...active], (key) => categories[key] ?? 0);
 }
 
 function interpolateChannel(start: number, end: number, ratio: number): number {
@@ -127,44 +158,18 @@ export function textColorForComplexityRatio(ratio: number): string {
   return ratio >= 0.45 ? "#ffffff" : "#111827";
 }
 
-export function computeNodeRadiusMap(
-  nodes: BrightnessNode[],
-  lineCategories: Set<LineCategoryKey>,
-): Map<string, number> {
-  const hasSelection = lineCategories.size > 0;
-  let maxVisible = 1;
-  const visibleById = new Map<string, number>();
-  for (const node of nodes) {
-    const visible = lineCategoryTotal(node.line_categories, lineCategories);
-    visibleById.set(node.module_name, visible);
-    maxVisible = Math.max(maxVisible, visible);
-  }
-  const radiusScale = hasSelection ? MAX_NODE_RADIUS / Math.sqrt(maxVisible) : 0;
-  return new Map(
-    nodes.map((node) => {
-      const visible = visibleById.get(node.module_name) ?? 0;
-      if (!hasSelection) {
-        return [node.module_name, NEUTRAL_NODE_RADIUS] as const;
-      }
-      const scaled = Math.sqrt(Math.max(visible, 1)) * radiusScale;
-      return [
-        node.module_name,
-        Math.max(MIN_NODE_RADIUS, Math.min(MAX_NODE_RADIUS, scaled)),
-      ] as const;
-    }),
-  );
-}
-
 export function normalizeValues(values: number[]): number[] {
-  if (!values.length) {
-    return [];
-  }
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  if (min === max) {
-    return values.map(() => 0);
-  }
-  return values.map((value) => (value - min) / (max - min));
+  return pipe(values, (items) => {
+    if (!items.length) {
+      return [];
+    }
+    const min = Math.min(...items);
+    const max = Math.max(...items);
+    if (min === max) {
+      return map(items, () => 0);
+    }
+    return map(items, (value) => (value - min) / (max - min));
+  });
 }
 
 export function graphNodeMetricValue(node: BrightnessNode, criterion: BrightnessCriterion): number {
@@ -187,19 +192,20 @@ export function computeNodeBrightnessMap(
   if (!active.size || !nodes.length) {
     return new Map();
   }
-  const activeCriteria = BRIGHTNESS_CRITERIA.filter(({ key }) => active.has(key));
-  const normalizedByCriterion = activeCriteria.map(({ key }) =>
-    normalizeValues(nodes.map((node) => graphNodeMetricValue(node, key))),
+  const activeCriteria = filter(BRIGHTNESS_CRITERIA, ({ key }) => active.has(key));
+  const normalizedByCriterion = map(activeCriteria, ({ key }) =>
+    normalizeValues(map(nodes, (node) => graphNodeMetricValue(node, key))),
   );
-  const result = new Map<string, number>();
-  nodes.forEach((node, index) => {
-    const weightSum = activeCriteria.reduce((sum, { weight }) => sum + weight, 0);
-    const brightness = activeCriteria.reduce((sum, { weight }, criterionIndex) => {
-      return sum + normalizedByCriterion[criterionIndex][index] * weight;
-    }, 0) / weightSum;
-    result.set(node.module_name, brightness);
-  });
-  return result;
+  const weightSum = sumBy(activeCriteria, ({ weight }) => weight);
+  return new Map(
+    map(nodes, (node, index) => [
+      node.module_name,
+      sumBy(
+        activeCriteria,
+        ({ weight }, criterionIndex) => normalizedByCriterion[criterionIndex][index] * weight,
+      ) / weightSum,
+    ] as const),
+  );
 }
 
 export type ModuleCouplingStats = {
@@ -208,18 +214,15 @@ export type ModuleCouplingStats = {
   private_calls: number;
 };
 
-export function moduleCouplingStats(moduleName: string, edges: { source: string; target: string; kinds?: Record<string, number> }[]): ModuleCouplingStats {
-  let privateCalls = 0;
-  let outgoing = 0;
-  let incoming = 0;
-  for (const edge of edges) {
-    if (edge.source === moduleName) {
-      outgoing += 1;
-      privateCalls += edge.kinds?.python_private_method_call ?? 0;
-    }
-    if (edge.target === moduleName) {
-      incoming += 1;
-    }
-  }
-  return { outgoing_edges: outgoing, incoming_edges: incoming, private_calls: privateCalls };
+export function moduleCouplingStats(
+  moduleName: string,
+  edges: { source: string; target: string; kinds?: Record<string, number> }[],
+): ModuleCouplingStats {
+  const outgoing = filter(edges, (edge) => edge.source === moduleName);
+  const incoming = filter(edges, (edge) => edge.target === moduleName);
+  return {
+    outgoing_edges: outgoing.length,
+    incoming_edges: incoming.length,
+    private_calls: sumBy(outgoing, (edge) => edge.kinds?.python_private_method_call ?? 0),
+  };
 }

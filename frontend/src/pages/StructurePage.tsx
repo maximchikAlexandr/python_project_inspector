@@ -10,7 +10,15 @@ import {
   type EdgeRow,
   type StructurePoint,
 } from "../api/client";
-import { edgeKindLabel } from "../registry/odooProfile";
+import { toCommitSelectOptions } from "../transforms/commitOptions";
+import {
+  edgeKindSelectOptions,
+  filterStructureEdges,
+  formatEdgeKindsCell,
+  moduleSelectOptions,
+  pickDefaultStructureCommit,
+  structureChartRows,
+} from "../transforms/structureTransforms";
 
 export function StructurePage() {
   const [commits, setCommits] = useState<CommitRow[]>([]);
@@ -27,53 +35,16 @@ export function StructurePage() {
   const edgesGeneration = useRef(0);
   const timeseriesGeneration = useRef(0);
 
-  const commitOptions = useMemo(
-    () =>
-      commits.map((row) => ({
-        value: row.commit_hash,
-        label: `#${row.commit_order} ${row.commit_hash.slice(0, 8)} ${row.summary ?? ""}`,
-      })),
-    [commits],
-  );
-
-  const moduleOptions = useMemo(
-    () =>
-      [...new Set(edges.flatMap((edge) => [edge.source, edge.target]))]
-        .sort((left, right) => left.localeCompare(right))
-        .map((name) => ({ value: name, label: name })),
-    [edges],
-  );
-
-  const kindOptions = useMemo(() => {
-    const kinds = new Set<string>();
-    for (const edge of edges) {
-      for (const kind of Object.keys(edge.kinds ?? {})) {
-        if ((edge.kinds?.[kind] ?? 0) > 0) {
-          kinds.add(kind);
-        }
-      }
-    }
-    return [...kinds]
-      .sort((left, right) => left.localeCompare(right))
-      .map((kind) => ({ value: kind, label: edgeKindLabel(kind) }));
-  }, [edges]);
-
+  const commitOptions = useMemo(() => toCommitSelectOptions(commits), [commits]);
+  const moduleOptions = useMemo(() => moduleSelectOptions(edges), [edges]);
+  const kindOptions = useMemo(() => edgeKindSelectOptions(edges), [edges]);
   const filteredEdges = useMemo(
     () =>
-      edges.filter((edge) => {
-        if (sourceFilter && edge.source !== sourceFilter) {
-          return false;
-        }
-        if (targetFilter && edge.target !== targetFilter) {
-          return false;
-        }
-        if ((edge.score ?? 0) < minScore) {
-          return false;
-        }
-        if (kindFilter) {
-          return (edge.kinds?.[kindFilter] ?? 0) > 0;
-        }
-        return true;
+      filterStructureEdges(edges, {
+        sourceFilter,
+        targetFilter,
+        kindFilter,
+        minScore,
       }),
     [edges, kindFilter, minScore, sourceFilter, targetFilter],
   );
@@ -94,16 +65,7 @@ export function StructurePage() {
           return;
         }
         setStructurePoints(structure.points);
-        setSelectedCommit((current) => {
-          if (current && structure.points.some((point) => point.commit_hash === current)) {
-            return current;
-          }
-          return (
-            [...structure.points].reverse().find((point) => point.edge_count > 0)?.commit_hash
-            ?? commits[commits.length - 1]?.commit_hash
-            ?? null
-          );
-        });
+        setSelectedCommit((current) => pickDefaultStructureCommit(structure.points, commits, current));
       })
       .catch((err: Error) => {
         if (generation === timeseriesGeneration.current) {
@@ -139,11 +101,7 @@ export function StructurePage() {
       });
   }, [includeZeroScore, selectedCommit]);
 
-  const chartData = structurePoints.map((point) => ({
-    order: point.commit_order,
-    edge_count: point.edge_count,
-    total_score: point.total_score,
-  }));
+  const chartData = structureChartRows(structurePoints);
 
   const selectedPoint = structurePoints.find((point) => point.commit_hash === selectedCommit);
 
@@ -259,12 +217,7 @@ export function StructurePage() {
                       ? `${edge.breakdown.total} (mr=${edge.breakdown.model_reuse})`
                       : "—"}
                   </Table.Td>
-                  <Table.Td>
-                    {Object.entries(edge.kinds ?? {})
-                      .sort((left, right) => right[1] - left[1])
-                      .map(([kind, count]) => `${edgeKindLabel(kind)} (${count})`)
-                      .join(", ") || "—"}
-                  </Table.Td>
+                  <Table.Td>{formatEdgeKindsCell(edge)}</Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>

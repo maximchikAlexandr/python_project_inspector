@@ -8,23 +8,43 @@ import {
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
-import { Button, Group, Text } from "@mantine/core";
+import { Text } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { GraphEdge, GraphNode } from "../api/client";
 import {
   computeNodeBrightnessMap,
-  computeNodeRadiusMap,
   colorForComplexityRatio,
   lineCategoryTotal,
-  MIN_NODE_RADIUS,
-  NEUTRAL_NODE_RADIUS,
   strokeForComplexityRatio,
   textColorForComplexityRatio,
   type BrightnessCriterion,
   type LineCategoryKey,
 } from "../registry/odooProfile";
-import { formatCodeLines, formatMetricValue } from "../utils/metricFormat";
+import { formatCodeLines } from "../utils/metricFormat";
+import type { GraphDisplayState, GraphEdgeKind, GraphForceState } from "./graphSettingsTypes";
+import {
+  buildGraphEdgeViews,
+  computeNodeDisplay,
+  type GraphEdgeViewModel,
+  maxLinkThicknessMetric,
+  maxNodeMetric,
+} from "./graphSelectors";
+import {
+  buildEdgeTooltip,
+  buildNodeTooltip,
+  clampZoom,
+  computeTargetViewBox,
+  edgeCurvePath,
+  GRAPH_HEIGHT,
+  GRAPH_WIDTH,
+  INITIAL_VIEWBOX,
+  MIN_NODE_RADIUS,
+  type ViewBox,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  ZOOM_STEP,
+} from "./graphViewPure";
 
 type SimNode = SimulationNodeDatum & {
   id: string;
@@ -34,62 +54,47 @@ type SimNode = SimulationNodeDatum & {
 
 type SimLink = SimulationLinkDatum<SimNode> & {
   edge: GraphEdge;
+  key: string;
+  sourceId: string;
+  targetId: string;
   offset: number;
+  display: GraphEdgeViewModel["display"];
 };
 
-type ViewBox = {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-};
+type PositionCache = Map<string, { x: number; y: number; vx?: number; vy?: number }>;
+type LayoutMap = Map<string, { x: number; y: number; pinned: boolean }>;
+type FadeState = { enabled: boolean; highlight: Set<string>; edgeKeys: Set<string> };
 
-type Props = {
+type ModuleGraphProps = {
   nodes: GraphNode[];
   edges: GraphEdge[];
-  lineCategories: Set<LineCategoryKey>;
+  display: GraphDisplayState;
+  force: GraphForceState;
+  enabledEdgeKinds: Record<GraphEdgeKind, boolean>;
   brightnessCriteria: Set<BrightnessCriterion>;
+  lineCategories: Set<LineCategoryKey>;
   selectedModule: string | null;
   onSelectModule: (name: string | null) => void;
+  pinned: Record<string, boolean>;
+  onTogglePin: (moduleName: string) => void;
+  layoutCommand: { kind: "restart" | "reset" | "save" | "load" | "unpinAll"; nonce: number } | null;
+  onLayoutSnapshot?: (nodes: Record<string, { x: number; y: number; pinned: boolean }>) => void;
+  zoomCommand: { kind: "in" | "out" | "fit"; nonce: number } | null;
   loading?: boolean;
+  emptyNotice?: "no_kinds" | "below_threshold" | "no_neighbors" | null;
+  initialLayout?: LayoutMap;
 };
 
-const WIDTH = 1600;
-const HEIGHT = 860;
-const MIN_EDGE_STROKE = 0.9;
-const MAX_EDGE_STROKE = 3;
-const CAMERA_PADDING = 140;
 const CAMERA_LERP = 0.18;
-const ZOOM_MIN = 0.35;
-const ZOOM_MAX = 8;
-const ZOOM_STEP = 1.18;
-const INITIAL_VIEWBOX = `0 0 ${WIDTH} ${HEIGHT}`;
+const FADE_OPACITY = 0.2;
+const FADE_MS = 150;
+const DRAG_CLICK_THRESHOLD = 4;
 
-function edgeStrokeWidth(points: number): number {
-  return MIN_EDGE_STROKE + Math.min(MAX_EDGE_STROKE - MIN_EDGE_STROKE, Math.max(points, 0) / 18);
-}
-
-function buildEdgeTooltip(edge: GraphEdge): string {
-  return [
-    `${edge.source} -> ${edge.target}`,
-    `points=${edge.breakdown.total}`,
-    `reuse=${edge.breakdown.model_reuse}`,
-    `extend/method=${edge.breakdown.extension_or_method}`,
-    `view=${edge.breakdown.view}`,
-    `field/property=${edge.breakdown.field_property}`,
-  ].join(" | ");
-}
-
-function buildNodeTooltip(node: GraphNode, visible: number): string {
-  return [
-    node.module_name,
-    `visible=${formatCodeLines(visible)}`,
-    `CC med ${formatMetricValue(node.cyclomatic_median)}`,
-    `cognitive med ${formatMetricValue(node.cognitive_median)}`,
-    `Jones med ${formatMetricValue(node.jones_median)}`,
-    `methods=${node.method_count}`,
-  ].join(" | ");
-}
+const EMPTY_NOTICE_TEXT: Record<NonNullable<ModuleGraphProps["emptyNotice"]>, string> = {
+  no_kinds: "No relationship kinds selected",
+  below_threshold: "All edges below threshold",
+  no_neighbors: "No neighbors match focus criteria",
+};
 
 function linkEndpointId(value: string | number | SimNode): string {
   if (typeof value === "string") {
@@ -101,82 +106,115 @@ function linkEndpointId(value: string | number | SimNode): string {
   return value.id;
 }
 
-function edgeCurvePath(
-  source: { x: number; y: number; radius: number },
-  target: { x: number; y: number; radius: number },
-  offset: number,
-): string {
-  const dx = target.x - source.x;
-  const dy = target.y - source.y;
-  const dist = Math.hypot(dx, dy) || 1;
-  const ux = dx / dist;
-  const uy = dy / dist;
-  const nx = -uy;
-  const ny = ux;
-  const startX = source.x + ux * (source.radius + 1.5);
-  const startY = source.y + uy * (source.radius + 1.5);
-  const endX = target.x - ux * (target.radius + 4);
-  const endY = target.y - uy * (target.radius + 4);
-  const curve = offset;
-  const cx = (startX + endX) / 2 + nx * curve;
-  const cy = (startY + endY) / 2 + ny * curve;
-  return `M ${startX} ${startY} Q ${cx} ${cy} ${endX} ${endY}`;
+function randomSeed(): { x: number; y: number; vx: number; vy: number } {
+  return {
+    x: GRAPH_WIDTH / 2 + (Math.random() - 0.5) * 80,
+    y: GRAPH_HEIGHT / 2 + (Math.random() - 0.5) * 80,
+    vx: (Math.random() - 0.5) * 2,
+    vy: (Math.random() - 0.5) * 2,
+  };
 }
 
-function clamp(value: number, low: number, high: number): number {
-  return Math.max(low, Math.min(high, value));
+function computeFadeState({
+  enabled,
+  hoveredEdgeKey,
+  hoveredId,
+  links,
+}: {
+  enabled: boolean;
+  hoveredEdgeKey: string | null;
+  hoveredId: string | null;
+  links: SimLink[];
+}): FadeState {
+  const highlight = new Set<string>();
+  const edgeKeys = new Set<string>();
+  if (!enabled) {
+    return { enabled, highlight, edgeKeys };
+  }
+  if (hoveredEdgeKey) {
+    edgeKeys.add(hoveredEdgeKey);
+    const link = links.find((item) => item.key === hoveredEdgeKey);
+    if (link) {
+      highlight.add(linkEndpointId(link.source));
+      highlight.add(linkEndpointId(link.target));
+    }
+    return { enabled, highlight, edgeKeys };
+  }
+  if (hoveredId) {
+    highlight.add(hoveredId);
+    for (const link of links) {
+      const sourceId = linkEndpointId(link.source);
+      const targetId = linkEndpointId(link.target);
+      if (sourceId === hoveredId) {
+        highlight.add(targetId);
+      }
+      if (targetId === hoveredId) {
+        highlight.add(sourceId);
+      }
+    }
+  }
+  return { enabled, highlight, edgeKeys };
 }
 
-function computeTargetViewBox(
-  positions: Map<string, { x: number; y: number; radius: number }>,
-  zoomScale: number,
-  manualPanX: number,
-  manualPanY: number,
-): ViewBox {
-  if (!positions.size) {
-    return { x: 0, y: 0, w: WIDTH, h: HEIGHT };
-  }
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  let maxRadius = MIN_NODE_RADIUS;
-  for (const point of positions.values()) {
-    minX = Math.min(minX, point.x - point.radius);
-    maxX = Math.max(maxX, point.x + point.radius);
-    minY = Math.min(minY, point.y - point.radius);
-    maxY = Math.max(maxY, point.y + point.radius);
-    maxRadius = Math.max(maxRadius, point.radius);
-  }
-  const padding = maxRadius + CAMERA_PADDING;
-  let targetX = minX - padding;
-  let targetY = minY - padding;
-  let targetW = Math.max(WIDTH, maxX - minX + padding * 2);
-  let targetH = Math.max(HEIGHT, maxY - minY + padding * 2);
-  if (targetW === WIDTH) {
-    targetX = (minX + maxX) / 2 - targetW / 2;
-  }
-  if (targetH === HEIGHT) {
-    targetY = (minY + maxY) / 2 - targetH / 2;
-  }
-  const centerX = targetX + targetW / 2;
-  const centerY = targetY + targetH / 2;
-  targetW /= zoomScale;
-  targetH /= zoomScale;
-  targetX = centerX - targetW / 2 + manualPanX;
-  targetY = centerY - targetH / 2 + manualPanY;
-  return { x: targetX, y: targetY, w: targetW, h: targetH };
+function buildSimNodes({
+  nodes,
+  previous,
+  cache,
+  initialLayout,
+  pinned,
+  radii,
+  seed,
+}: {
+  nodes: GraphNode[];
+  previous: Map<string, SimNode>;
+  cache: PositionCache;
+  initialLayout?: LayoutMap;
+  pinned: Record<string, boolean>;
+  radii: Map<string, number>;
+  seed: () => { x: number; y: number; vx: number; vy: number };
+}): SimNode[] {
+  return nodes.map((node) => {
+    const id = node.module_name;
+    const prev = previous.get(id);
+    const cached = cache.get(id);
+    const saved = initialLayout?.get(id);
+    const seeded = seed();
+    const x = prev?.x ?? cached?.x ?? saved?.x ?? seeded.x;
+    const y = prev?.y ?? cached?.y ?? saved?.y ?? seeded.y;
+    const isPinned = !!pinned[id] || !!saved?.pinned;
+    return {
+      id,
+      node,
+      radius: radii.get(id) ?? MIN_NODE_RADIUS,
+      x,
+      y,
+      vx: prev?.vx ?? cached?.vx ?? seeded.vx,
+      vy: prev?.vy ?? cached?.vy ?? seeded.vy,
+      fx: isPinned ? x : null,
+      fy: isPinned ? y : null,
+    };
+  });
 }
 
 export function ModuleGraph({
   nodes,
   edges,
-  lineCategories,
+  display,
+  force,
+  enabledEdgeKinds,
   brightnessCriteria,
+  lineCategories,
   selectedModule,
   onSelectModule,
+  pinned,
+  onTogglePin,
+  layoutCommand,
+  onLayoutSnapshot,
+  zoomCommand,
   loading = false,
-}: Props) {
+  emptyNotice = null,
+  initialLayout,
+}: ModuleGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const simulationRef = useRef<Simulation<SimNode, SimLink> | null>(null);
   const nodesRef = useRef<SimNode[]>([]);
@@ -184,11 +222,24 @@ export function ModuleGraph({
   const linkPathRefs = useRef<Map<string, SVGPathElement>>(new Map());
   const nodeGroupRefs = useRef<Map<string, SVGGElement>>(new Map());
   const positionsRef = useRef<Map<string, { x: number; y: number; radius: number }>>(new Map());
-  const viewBoxRef = useRef<ViewBox>({ x: 0, y: 0, w: WIDTH, h: HEIGHT });
+  const positionCacheRef = useRef<PositionCache>(new Map());
+  const processedLayoutNonceRef = useRef(0);
+  const labelFadeThresholdRef = useRef(display.labelFadeThreshold);
+  labelFadeThresholdRef.current = display.labelFadeThreshold;
+  const viewBoxRef = useRef<ViewBox>({ x: 0, y: 0, w: GRAPH_WIDTH, h: GRAPH_HEIGHT });
   const radiusByIdRef = useRef<Map<string, number>>(new Map());
   const zoomScaleRef = useRef(1);
   const manualPanRef = useRef({ x: 0, y: 0 });
-  const [zoomLabel, setZoomLabel] = useState(100);
+  const fadeRef = useRef({ enabled: false, highlight: new Set<string>(), edgeKeys: new Set<string>() });
+  const nodePointerRef = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
+  const [zoomScale, setZoomScale] = useState(1);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hoveredEdgeKey, setHoveredEdgeKey] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [panning, setPanning] = useState<{ startX: number; startY: number; panX: number; panY: number } | null>(
     null,
@@ -199,47 +250,127 @@ export function ModuleGraph({
     [brightnessCriteria, nodes],
   );
 
-  const radiusById = useMemo(
-    () => computeNodeRadiusMap(nodes, lineCategories),
-    [lineCategories, nodes],
+  const maxMetric = useMemo(
+    () => maxNodeMetric(nodes, display.nodeSizeMetric, lineCategories),
+    [display.nodeSizeMetric, lineCategories, nodes],
   );
+
+  const thicknessMax = useMemo(
+    () => maxLinkThicknessMetric(edges, display, enabledEdgeKinds),
+    [display, edges, enabledEdgeKinds],
+  );
+
+  const nodeRadiiById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const node of nodes) {
+      const { radius } = computeNodeDisplay(node, display, {
+        maxMetric,
+        brightnessRatio: 0,
+        selected: false,
+        hovered: false,
+        lineCategories,
+        fill: "",
+        stroke: "",
+        zoomScale: 1,
+      });
+      map.set(node.module_name, radius);
+    }
+    return map;
+  }, [display, lineCategories, maxMetric, nodes]);
+
+  const edgeViews = useMemo(
+    () => buildGraphEdgeViews(edges, display, enabledEdgeKinds, thicknessMax),
+    [display, edges, enabledEdgeKinds, thicknessMax],
+  );
+
+  const labelZoom = display.labelFadeThreshold > 0 ? zoomScale : 1;
+
+  const nodeDisplayById = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computeNodeDisplay>>();
+    for (const node of nodes) {
+      const ratio = brightnessCriteria.size ? (brightnessById.get(node.module_name) ?? 0) : 0;
+      map.set(
+        node.module_name,
+        computeNodeDisplay(node, display, {
+          maxMetric,
+          brightnessRatio: ratio,
+          selected: selectedModule === node.module_name,
+          hovered: hoveredId === node.module_name,
+          lineCategories,
+          fill: colorForComplexityRatio(ratio),
+          stroke: strokeForComplexityRatio(ratio),
+          zoomScale: labelZoom,
+        }),
+      );
+    }
+    return map;
+  }, [
+    brightnessById,
+    brightnessCriteria.size,
+    display,
+    hoveredId,
+    labelZoom,
+    lineCategories,
+    maxMetric,
+    nodes,
+    selectedModule,
+  ]);
 
   useEffect(() => {
-    radiusByIdRef.current = radiusById;
-  }, [radiusById]);
+    radiusByIdRef.current = nodeRadiiById;
+  }, [nodeRadiiById]);
 
-  const simNodes: SimNode[] = useMemo(
+  const simLinks: SimLink[] = useMemo(
     () =>
-      nodes.map((node) => ({
-        id: node.module_name,
-        node,
-        radius: radiusById.get(node.module_name) ?? NEUTRAL_NODE_RADIUS,
+      edgeViews.map((view) => ({
+        source: view.sourceId,
+        target: view.targetId,
+        edge: view.edge,
+        key: view.key,
+        sourceId: view.sourceId,
+        targetId: view.targetId,
+        offset: view.offset,
+        display: view.display,
       })),
-    [nodes, radiusById],
+    [edgeViews],
   );
-
-  const simLinks: SimLink[] = useMemo(() => {
-    const edgeKeys = new Set(edges.map((edge) => `${edge.source}|${edge.target}`));
-    return edges.map((edge) => {
-      const reverse = edgeKeys.has(`${edge.target}|${edge.source}`);
-      const offset = reverse && edge.source > edge.target ? 18 : reverse ? -18 : 0;
-      return {
-        source: edge.source,
-        target: edge.target,
-        edge,
-        offset,
-      };
-    });
-  }, [edges]);
 
   useEffect(() => {
     simLinksRef.current = simLinks;
   }, [simLinks]);
 
-  const nodeSignature = useMemo(
-    () => nodes.map((node) => node.module_name).join(","),
-    [nodes],
-  );
+  const nodeSignature = useMemo(() => nodes.map((node) => node.module_name).join(","), [nodes]);
+
+  const applyFadeOpacity = useCallback(() => {
+    const { enabled, highlight, edgeKeys } = fadeRef.current;
+    const active = enabled && (highlight.size > 0 || edgeKeys.size > 0);
+    const transition = active ? `opacity ${FADE_MS}ms ease` : "";
+    for (const [id, group] of nodeGroupRefs.current) {
+      group.style.opacity = String(!active || highlight.has(id) ? 1 : FADE_OPACITY);
+      group.style.transition = transition;
+    }
+    for (const link of simLinksRef.current) {
+      const sourceId = linkEndpointId(link.source);
+      const targetId = linkEndpointId(link.target);
+      const pathEl = linkPathRefs.current.get(link.key);
+      if (!pathEl) {
+        continue;
+      }
+      const lit = !active || edgeKeys.has(link.key) || highlight.has(sourceId) || highlight.has(targetId);
+      pathEl.style.opacity = String(lit ? 1 : FADE_OPACITY);
+      pathEl.style.transition = transition;
+    }
+  }, []);
+
+  useEffect(() => {
+    fadeRef.current = computeFadeState({
+      enabled: display.fadeNonNeighbors,
+      hoveredEdgeKey,
+      hoveredId,
+      links: simLinksRef.current,
+    });
+    applyFadeOpacity();
+  }, [applyFadeOpacity, display.fadeNonNeighbors, hoveredEdgeKey, hoveredId]);
 
   const syncGraphDom = useCallback((layoutNodes: SimNode[]) => {
     const positions = new Map(
@@ -249,11 +380,18 @@ export function ModuleGraph({
       ]),
     );
     positionsRef.current = positions;
+    for (const node of layoutNodes) {
+      positionCacheRef.current.set(node.id, {
+        x: node.x ?? 0,
+        y: node.y ?? 0,
+        vx: node.vx,
+        vy: node.vy,
+      });
+    }
     for (const link of simLinksRef.current) {
       const sourceId = linkEndpointId(link.source);
       const targetId = linkEndpointId(link.target);
-      const key = `${sourceId}-${targetId}-${link.offset}`;
-      const pathEl = linkPathRefs.current.get(key);
+      const pathEl = linkPathRefs.current.get(link.key);
       const source = positions.get(sourceId);
       const target = positions.get(targetId);
       if (!pathEl || !source || !target) {
@@ -276,56 +414,76 @@ export function ModuleGraph({
         group.setAttribute("transform", `translate(${node.x ?? 0}, ${node.y ?? 0})`);
       }
     }
-  }, []);
+    if (fadeRef.current.enabled) {
+      applyFadeOpacity();
+    }
+  }, [applyFadeOpacity]);
+
+  const buildLinkForce = useCallback(
+    () =>
+      forceLink<SimNode, SimLink>(simLinksRef.current)
+        .id((node) => node.id)
+        .distance((link) =>
+          Math.max(40, force.linkDistance - Math.min(18, link.edge.breakdown.total * 0.9)),
+        )
+        .strength((link) => Math.min(1, force.linkStrength + link.edge.breakdown.total * 0.05)),
+    [force.linkDistance, force.linkStrength],
+  );
+
+  const applyInitialLayout = useCallback(() => {
+    if (!initialLayout?.size) {
+      return;
+    }
+    const layoutNodes = nodesRef.current;
+    for (const node of layoutNodes) {
+      const pos = initialLayout.get(node.id);
+      if (!pos) {
+        continue;
+      }
+      node.x = pos.x;
+      node.y = pos.y;
+      if (pos.pinned || pinned[node.id]) {
+        node.fx = pos.x;
+        node.fy = pos.y;
+      }
+    }
+    simulationRef.current?.alpha(0.3).restart();
+    syncGraphDom(layoutNodes);
+  }, [initialLayout, pinned, syncGraphDom]);
 
   useEffect(() => {
-    zoomScaleRef.current = 1;
-    manualPanRef.current = { x: 0, y: 0 };
-    setZoomLabel(100);
-    const layoutNodes: SimNode[] = nodes.map((node) => ({
-      id: node.module_name,
-      node,
-      radius: radiusByIdRef.current.get(node.module_name) ?? NEUTRAL_NODE_RADIUS,
-      x: WIDTH / 2 + (Math.random() - 0.5) * 80,
-      y: HEIGHT / 2 + (Math.random() - 0.5) * 80,
-      vx: (Math.random() - 0.5) * 2,
-      vy: (Math.random() - 0.5) * 2,
-    }));
+    const prevById = new Map(nodesRef.current.map((node) => [node.id, node]));
+    const layoutNodes = buildSimNodes({
+      nodes,
+      previous: prevById,
+      cache: positionCacheRef.current,
+      initialLayout,
+      pinned,
+      radii: radiusByIdRef.current,
+      seed: randomSeed,
+    });
     nodesRef.current = layoutNodes;
-
     simulationRef.current?.stop();
     const simulation = forceSimulation(layoutNodes)
-      .force(
-        "link",
-        forceLink<SimNode, SimLink>(simLinks)
-          .id((node) => node.id)
-          .distance((link) => Math.max(40, 200 - Math.min(18, link.edge.breakdown.total * 0.9)))
-          .strength((link) => Math.min(1, 0.15 + link.edge.breakdown.total * 0.05)),
-      )
-      .force("charge", forceManyBody().strength(-900))
-      .force("center", forceCenter(WIDTH / 2, HEIGHT / 2).strength(0.05))
+      .force("link", buildLinkForce())
+      .force("charge", forceManyBody().strength(force.repelStrength))
+      .force("center", forceCenter(GRAPH_WIDTH / 2, GRAPH_HEIGHT / 2).strength(force.centerStrength))
       .force(
         "collide",
-        forceCollide<SimNode>().radius((node) => node.radius + 6),
+        forceCollide<SimNode>().radius((node) => node.radius + force.collidePadding),
       )
-      .velocityDecay(0.88)
+      .velocityDecay(force.velocityDecay)
       .alphaDecay(0.015)
       .alphaMin(0.001)
       .alphaTarget(0.02);
-
-    simulation.on("tick", () => {
-      syncGraphDom(layoutNodes);
-    });
-
+    simulation.on("tick", () => syncGraphDom(layoutNodes));
     simulationRef.current = simulation;
     syncGraphDom(layoutNodes);
-    const syncFrame = requestAnimationFrame(() => syncGraphDom(layoutNodes));
     return () => {
-      cancelAnimationFrame(syncFrame);
       simulation.stop();
       simulationRef.current = null;
     };
-  }, [nodeSignature, simLinks, syncGraphDom]);
+  }, [buildLinkForce, force.centerStrength, force.collidePadding, force.repelStrength, force.velocityDecay, nodeSignature, syncGraphDom]);
 
   useEffect(() => {
     const simulation = simulationRef.current;
@@ -334,15 +492,117 @@ export function ModuleGraph({
       return;
     }
     for (const node of layoutNodes) {
-      node.radius = radiusById.get(node.id) ?? NEUTRAL_NODE_RADIUS;
+      node.radius = radiusByIdRef.current.get(node.id) ?? MIN_NODE_RADIUS;
+      if (pinned[node.id]) {
+        node.fx = node.x ?? node.fx ?? null;
+        node.fy = node.y ?? node.fy ?? null;
+      }
     }
-    simulation.force(
-      "collide",
-      forceCollide<SimNode>().radius((node) => node.radius + 6),
-    );
-    simulation.alpha(0.15).restart();
+    simulation
+      .force("collide", forceCollide<SimNode>().radius((node) => node.radius + force.collidePadding))
+      .alpha(0.15)
+      .restart();
     syncGraphDom(layoutNodes);
-  }, [radiusById, syncGraphDom]);
+  }, [force.collidePadding, nodeRadiiById, pinned, syncGraphDom]);
+
+  useEffect(() => {
+    const simulation = simulationRef.current;
+    if (!simulation) {
+      return;
+    }
+    simulation
+      .force("link", buildLinkForce())
+      .force("charge", forceManyBody().strength(force.repelStrength))
+      .force("center", forceCenter(GRAPH_WIDTH / 2, GRAPH_HEIGHT / 2).strength(force.centerStrength))
+      .force(
+        "collide",
+        forceCollide<SimNode>().radius((node) => node.radius + force.collidePadding),
+      )
+      .velocityDecay(force.velocityDecay)
+      .alpha(0.3)
+      .restart();
+  }, [buildLinkForce, force, simLinks]);
+
+  useEffect(() => {
+    for (const node of nodesRef.current) {
+      if (pinned[node.id]) {
+        node.fx = node.x ?? node.fx ?? null;
+        node.fy = node.y ?? node.fy ?? null;
+      } else if (!draggingId || draggingId !== node.id) {
+        node.fx = null;
+        node.fy = null;
+      }
+    }
+  }, [draggingId, pinned]);
+
+  useEffect(() => {
+    if (!layoutCommand) {
+      return;
+    }
+    if (processedLayoutNonceRef.current === layoutCommand.nonce) {
+      return;
+    }
+    processedLayoutNonceRef.current = layoutCommand.nonce;
+    const layoutNodes = nodesRef.current;
+    const simulation = simulationRef.current;
+    if (layoutCommand.kind === "restart") {
+      simulation?.alpha(1).restart();
+      return;
+    }
+    if (layoutCommand.kind === "reset") {
+      for (const node of layoutNodes) {
+        const seed = randomSeed();
+        node.x = seed.x;
+        node.y = seed.y;
+        node.vx = seed.vx;
+        node.vy = seed.vy;
+        node.fx = null;
+        node.fy = null;
+      }
+      simulation?.alpha(1).restart();
+      syncGraphDom(layoutNodes);
+      return;
+    }
+    if (layoutCommand.kind === "save") {
+      if (onLayoutSnapshot) {
+        const snapshot: Record<string, { x: number; y: number; pinned: boolean }> = {};
+        for (const node of layoutNodes) {
+          snapshot[node.id] = {
+            x: Math.round(node.x ?? 0),
+            y: Math.round(node.y ?? 0),
+            pinned: !!pinned[node.id],
+          };
+        }
+        onLayoutSnapshot(snapshot);
+      }
+      return;
+    }
+    if (layoutCommand.kind === "load") {
+      applyInitialLayout();
+      return;
+    }
+    if (layoutCommand.kind === "unpinAll") {
+      for (const node of layoutNodes) {
+        node.fx = null;
+        node.fy = null;
+      }
+    }
+  }, [applyInitialLayout, layoutCommand, onLayoutSnapshot, pinned, syncGraphDom]);
+
+  useEffect(() => {
+    if (!zoomCommand) {
+      return;
+    }
+    if (zoomCommand.kind === "in") {
+      zoomScaleRef.current = clampZoom(zoomScaleRef.current * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
+    } else if (zoomCommand.kind === "out") {
+      zoomScaleRef.current = clampZoom(zoomScaleRef.current / ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
+    } else {
+      manualPanRef.current = { x: 0, y: 0 };
+      zoomScaleRef.current = 1;
+    }
+    setZoomScale(zoomScaleRef.current);
+  }, [zoomCommand]);
 
   useEffect(() => {
     let active = true;
@@ -365,11 +625,10 @@ export function ModuleGraph({
         h: current.h + (target.h - current.h) * CAMERA_LERP,
       };
       viewBoxRef.current = viewBox;
-      if (svgRef.current) {
-        svgRef.current.setAttribute(
-          "viewBox",
-          `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`,
-        );
+      svgRef.current?.setAttribute("viewBox", `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`);
+      const effectiveZoom = viewBox.w > 0 ? GRAPH_WIDTH / viewBox.w : 1;
+      if (labelFadeThresholdRef.current > 0) {
+        setZoomScale((current) => (Math.abs(current - effectiveZoom) > 0.02 ? effectiveZoom : current));
       }
       raf = requestAnimationFrame(loop);
     };
@@ -378,17 +637,6 @@ export function ModuleGraph({
       active = false;
       cancelAnimationFrame(raf);
     };
-  }, []);
-
-  const setZoom = useCallback((nextScale: number) => {
-    zoomScaleRef.current = clamp(nextScale, ZOOM_MIN, ZOOM_MAX);
-    setZoomLabel(Math.round(zoomScaleRef.current * 100));
-  }, []);
-
-  const resetCamera = useCallback(() => {
-    manualPanRef.current = { x: 0, y: 0 };
-    zoomScaleRef.current = 1;
-    setZoomLabel(100);
   }, []);
 
   const clientToWorld = useCallback((clientX: number, clientY: number): { x: number; y: number } | null => {
@@ -409,13 +657,15 @@ export function ModuleGraph({
     if (!svg) {
       return;
     }
-    const screenWidth = svg.clientWidth || WIDTH;
-    const screenHeight = svg.clientHeight || HEIGHT;
+    const screenWidth = svg.clientWidth || GRAPH_WIDTH;
+    const screenHeight = svg.clientHeight || GRAPH_HEIGHT;
     const vb = viewBoxRef.current;
     manualPanRef.current = {
       x: manualPanRef.current.x + event.deltaX * (vb.w / screenWidth),
       y: manualPanRef.current.y + event.deltaY * (vb.h / screenHeight),
     };
+    const effectiveZoom = vb.w > 0 ? GRAPH_WIDTH / vb.w : 1;
+    setZoomScale(effectiveZoom);
   }
 
   function onBackgroundMouseDown(event: React.MouseEvent<SVGSVGElement>) {
@@ -434,8 +684,8 @@ export function ModuleGraph({
     const svg = svgRef.current;
     if (panning && svg) {
       const vb = viewBoxRef.current;
-      const screenWidth = svg.clientWidth || WIDTH;
-      const screenHeight = svg.clientHeight || HEIGHT;
+      const screenWidth = svg.clientWidth || GRAPH_WIDTH;
+      const screenHeight = svg.clientHeight || GRAPH_HEIGHT;
       manualPanRef.current = {
         x: panning.panX - (event.clientX - panning.startX) * (vb.w / screenWidth),
         y: panning.panY - (event.clientY - panning.startY) * (vb.h / screenHeight),
@@ -446,6 +696,14 @@ export function ModuleGraph({
       const point = clientToWorld(event.clientX, event.clientY);
       if (!point) {
         return;
+      }
+      const pointer = nodePointerRef.current;
+      if (pointer?.id === draggingId) {
+        const dx = event.clientX - pointer.startX;
+        const dy = event.clientY - pointer.startY;
+        if (Math.hypot(dx, dy) > DRAG_CLICK_THRESHOLD) {
+          pointer.moved = true;
+        }
       }
       const node = nodesRef.current.find((item) => item.id === draggingId);
       if (node) {
@@ -460,14 +718,27 @@ export function ModuleGraph({
     if (draggingId) {
       const node = nodesRef.current.find((item) => item.id === draggingId);
       if (node) {
-        node.fx = null;
-        node.fy = null;
-        simulationRef.current?.alphaTarget(0.02).alpha(0.3).restart();
+        if (pinned[node.id]) {
+          node.fx = node.x ?? node.fx ?? null;
+          node.fy = node.y ?? node.fy ?? null;
+        } else {
+          node.fx = null;
+          node.fy = null;
+          simulationRef.current?.alphaTarget(0.02).alpha(0.3).restart();
+        }
       }
     }
+    window.setTimeout(() => {
+      if (nodePointerRef.current?.moved) {
+        nodePointerRef.current = null;
+      }
+    }, 0);
     setPanning(null);
     setDraggingId(null);
   }
+
+  const hideCanvas = emptyNotice === "no_kinds";
+  const bannerNotice = emptyNotice && emptyNotice !== "no_kinds" ? EMPTY_NOTICE_TEXT[emptyNotice] : null;
 
   return (
     <div style={{ position: "relative" }}>
@@ -476,7 +747,13 @@ export function ModuleGraph({
           ref={svgRef}
           width="100%"
           viewBox={INITIAL_VIEWBOX}
-          style={{ minWidth: 900, height: 860, display: "block", cursor: panning ? "grabbing" : "default" }}
+          style={{
+            minWidth: 900,
+            height: GRAPH_HEIGHT,
+            display: "block",
+            cursor: panning ? "grabbing" : "default",
+            visibility: hideCanvas ? "hidden" : "visible",
+          }}
           onClick={() => onSelectModule(null)}
           onWheel={onWheel}
           onMouseDown={onBackgroundMouseDown}
@@ -501,8 +778,8 @@ export function ModuleGraph({
           <rect
             x={0}
             y={0}
-            width={WIDTH}
-            height={HEIGHT}
+            width={GRAPH_WIDTH}
+            height={GRAPH_HEIGHT}
             fill="transparent"
             onMouseDown={(event) => {
               event.stopPropagation();
@@ -515,85 +792,156 @@ export function ModuleGraph({
             }}
           />
           {simLinks.map((link) => {
-            const sourceId = linkEndpointId(link.source);
-            const targetId = linkEndpointId(link.target);
-            const key = `${sourceId}-${targetId}-${link.offset}`;
-            const thickness = edgeStrokeWidth(link.edge.breakdown.total);
             return (
-              <path
-                key={key}
-                ref={(element) => {
-                  if (element) {
-                    linkPathRefs.current.set(key, element);
-                  } else {
-                    linkPathRefs.current.delete(key);
-                  }
-                }}
-                d=""
-                fill="none"
-                stroke="#6b7280"
-                strokeWidth={thickness}
-                markerEnd="url(#arrow)"
-              >
-                <title>{buildEdgeTooltip(link.edge)}</title>
-              </path>
+              <g key={link.key}>
+                <path
+                  id={`edge-${link.key}`}
+                  ref={(element) => {
+                    if (element) {
+                      linkPathRefs.current.set(link.key, element);
+                    } else {
+                      linkPathRefs.current.delete(link.key);
+                    }
+                  }}
+                  d=""
+                  fill="none"
+                  stroke="#6b7280"
+                  strokeWidth={link.display.thickness}
+                  markerEnd={display.showArrows ? "url(#arrow)" : undefined}
+                  onMouseEnter={() => setHoveredEdgeKey(link.key)}
+                  onMouseLeave={() => setHoveredEdgeKey((current) => (current === link.key ? null : current))}
+                >
+                  <title>{buildEdgeTooltip(link.edge)}</title>
+                </path>
+                {link.display.label ? (
+                  <text fontSize={9} fill="#374151" pointerEvents="none">
+                    <textPath href={`#edge-${link.key}`} startOffset="50%" textAnchor="middle">
+                      {link.display.label}
+                    </textPath>
+                  </text>
+                ) : null}
+              </g>
             );
           })}
-          {simNodes.map((simNode) => {
-            const visible = lineCategoryTotal(simNode.node.line_categories, lineCategories);
-            const complexityRatio = brightnessCriteria.size ? (brightnessById.get(simNode.id) ?? 0) : 0;
-            const fill = colorForComplexityRatio(complexityRatio);
-            const stroke = selectedModule === simNode.id
-              ? "#dc2626"
-              : strokeForComplexityRatio(complexityRatio);
-            const valueColor = textColorForComplexityRatio(complexityRatio);
-            const showVisible = lineCategories.size > 0;
-            const nodeRadius = simNode.radius;
-            const valueFontSize = Math.max(10, Math.min(16, nodeRadius * 0.33));
+          {nodes.map((node) => {
+            const id = node.module_name;
+            const model = nodeDisplayById.get(id)!;
+            const visible = lineCategoryTotal(node.line_categories, lineCategories);
+            const complexityRatio = brightnessCriteria.size ? (brightnessById.get(id) ?? 0) : 0;
+            const isSelected = selectedModule === id;
+            const isPinned = !!pinned[id];
             return (
               <g
-                key={simNode.id}
+                key={id}
                 ref={(element) => {
                   if (element) {
-                    nodeGroupRefs.current.set(simNode.id, element);
-                    const layoutNode = nodesRef.current.find((item) => item.id === simNode.id);
+                    nodeGroupRefs.current.set(id, element);
+                    const layoutNode = nodesRef.current.find((item) => item.id === id);
                     if (layoutNode?.x != null && layoutNode?.y != null) {
                       element.setAttribute("transform", `translate(${layoutNode.x}, ${layoutNode.y})`);
                     }
                   } else {
-                    nodeGroupRefs.current.delete(simNode.id);
+                    nodeGroupRefs.current.delete(id);
                   }
                 }}
                 style={{ cursor: "grab" }}
+                onMouseEnter={() => setHoveredId(id)}
+                onMouseLeave={() => setHoveredId((current) => (current === id ? null : current))}
                 onMouseDown={(event) => {
                   event.stopPropagation();
-                  setDraggingId(simNode.id);
+                  nodePointerRef.current = {
+                    id,
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    moved: false,
+                  };
+                  setDraggingId(id);
                 }}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onSelectModule(selectedModule === simNode.id ? null : simNode.id);
+                  if (nodePointerRef.current?.id === id && nodePointerRef.current.moved) {
+                    nodePointerRef.current = null;
+                    return;
+                  }
+                  nodePointerRef.current = null;
+                  onSelectModule(isSelected ? null : id);
+                }}
+                onDoubleClick={(event) => {
+                  event.stopPropagation();
+                  onTogglePin(id);
                 }}
               >
-                <title>{buildNodeTooltip(simNode.node, visible)}</title>
+                <title>{buildNodeTooltip(node, visible)}</title>
                 <circle
-                  r={nodeRadius}
-                  fill={fill}
-                  stroke={stroke}
-                  strokeWidth={selectedModule === simNode.id ? 3 : 1.5}
+                  r={model.radius}
+                  fill={model.fill}
+                  stroke={model.stroke}
+                  strokeWidth={isSelected ? 3 : 1.5}
                 />
-                {showVisible ? (
-                  <text textAnchor="middle" dy={4} fontSize={valueFontSize} fill={valueColor}>
+                {!display.showNodeBadges && lineCategories.size > 0 ? (
+                  <text
+                    textAnchor="middle"
+                    dy={4}
+                    fontSize={Math.max(8, Math.min(12, model.radius * 0.45))}
+                    fill={textColorForComplexityRatio(complexityRatio)}
+                  >
                     {formatCodeLines(visible)}
                   </text>
                 ) : null}
-                <text textAnchor="middle" dy={-(nodeRadius + 10)} fontSize={11} fill="#111827">
-                  {simNode.id}
-                </text>
+                {isPinned ? (
+                  <circle r={5} cx={model.radius * 0.65} cy={-model.radius * 0.65} fill="#dc2626" stroke="#fff" strokeWidth={1} />
+                ) : null}
+                {model.label ? (
+                  <text textAnchor="middle" dy={-(model.radius + 10)} fontSize={11} fill="#111827">
+                    {model.label}
+                  </text>
+                ) : null}
+                {model.badges ? (
+                  <text textAnchor="middle" dy={model.radius + 14} fontSize={9} fill="#374151">
+                    {`${model.badges.in}↓ ${model.badges.out}↑ · ${model.badges.files}f · ${model.badges.methods}m`}
+                  </text>
+                ) : null}
               </g>
             );
           })}
         </svg>
       </div>
+      {emptyNotice === "no_kinds" ? (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "#fafafa",
+          }}
+        >
+          <Text size="sm" c="dimmed">
+            {EMPTY_NOTICE_TEXT.no_kinds}
+          </Text>
+        </div>
+      ) : null}
+      {bannerNotice ? (
+        <div
+          style={{
+            position: "absolute",
+            top: 12,
+            left: "50%",
+            transform: "translateX(-50%)",
+            padding: "6px 12px",
+            borderRadius: 6,
+            background: "rgba(255,255,255,0.92)",
+            border: "1px solid var(--mantine-color-gray-3)",
+            pointerEvents: "none",
+            zIndex: 2,
+          }}
+        >
+          <Text size="sm" c="dimmed">
+            {bannerNotice}
+          </Text>
+        </div>
+      ) : null}
       {loading ? (
         <div
           style={{
@@ -610,20 +958,6 @@ export function ModuleGraph({
           </Text>
         </div>
       ) : null}
-      <Group mt="xs">
-        <Button size="xs" variant="light" onClick={() => setZoom(zoomScaleRef.current * ZOOM_STEP)}>
-          Zoom in
-        </Button>
-        <Button size="xs" variant="light" onClick={() => setZoom(zoomScaleRef.current / ZOOM_STEP)}>
-          Zoom out
-        </Button>
-        <Button size="xs" variant="light" onClick={resetCamera}>
-          Fit
-        </Button>
-        <Text size="sm" c="dimmed">
-          Zoom {zoomLabel}% · wheel pans · camera follows graph
-        </Text>
-      </Group>
     </div>
   );
 }

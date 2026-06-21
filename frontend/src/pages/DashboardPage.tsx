@@ -20,30 +20,37 @@ import {
 } from "../api/client";
 import { HotspotsTable } from "../components/HotspotsTable";
 import { MetricChart } from "../components/MetricChart";
-import { CHART_CATEGORY_COLORS, LINE_CATEGORIES } from "../registry/odooProfile";
+import { t } from "../i18n";
+import {
+  categoryChartFromTimeseries,
+  normalizeDashboardSelection,
+  type DashboardLevel,
+  type DashboardTab,
+} from "../transforms/dashboardTransforms";
 
 const COMPLEXITY_METRICS = [
-  { value: "cyclomatic", label: "Cyclomatic" },
-  { value: "cognitive", label: "Cognitive" },
-  { value: "jones", label: "Jones" },
+  { value: "cyclomatic", label: t("metrics.cyclomatic", "Cyclomatic") },
+  { value: "cognitive", label: t("metrics.cognitive", "Cognitive") },
+  { value: "jones", label: t("metrics.jones", "Jones") },
 ];
 
 const MODULE_METRICS = [
   ...COMPLEXITY_METRICS,
-  { value: "python_file_count", label: "Python file count" },
+  { value: "python_file_count", label: t("metrics.pythonFileCount", "Python file count") },
 ];
 
 const AGGS = [
-  { value: "mean", label: "Mean" },
-  { value: "median", label: "Median" },
-  { value: "p95", label: "P95" },
-  { value: "max", label: "Max" },
+  { value: "mean", label: t("aggregation.mean", "Mean") },
+  { value: "median", label: t("aggregation.median", "Median") },
+  { value: "p95", label: t("aggregation.p95", "P95") },
+  { value: "max", label: t("aggregation.max", "Max") },
 ];
 
 export function DashboardPage() {
-  const [level, setLevel] = useState<"module" | "file">("module");
+  const [level, setLevel] = useState<DashboardLevel>("module");
   const [metric, setMetric] = useState("cyclomatic");
   const [agg, setAgg] = useState("mean");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("complexity");
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [names, setNames] = useState<string[]>([]);
   const [complexityPoints, setComplexityPoints] = useState<TimeseriesPoint[]>([]);
@@ -59,10 +66,7 @@ export function DashboardPage() {
   const metricOptions = level === "module" ? MODULE_METRICS : COMPLEXITY_METRICS;
   const hotspotAgg = metric === "python_file_count" ? "mean" : agg;
 
-  const nameOptions = useMemo(
-    () => names.map((name) => ({ value: name, label: name })),
-    [names],
-  );
+  const nameOptions = useMemo(() => names.map((name) => ({ value: name, label: name })), [names]);
 
   useEffect(() => {
     fetchCatalog(level)
@@ -81,12 +85,27 @@ export function DashboardPage() {
   }, [names, selectedName]);
 
   useEffect(() => {
-    if (level === "file" && metric === "python_file_count") {
-      setMetric("cyclomatic");
+    const normalized = normalizeDashboardSelection({ level, metric, activeTab });
+    if (normalized.metric !== metric) {
+      setMetric(normalized.metric);
     }
-  }, [level, metric]);
+    if (normalized.activeTab !== activeTab) {
+      setActiveTab(normalized.activeTab);
+    }
+  }, [activeTab, level, metric]);
+
+  function onLevelChange(value: string | null) {
+    const nextLevel = (value as DashboardLevel | null) ?? "module";
+    const normalized = normalizeDashboardSelection({ level: nextLevel, metric, activeTab });
+    setLevel(nextLevel);
+    setMetric(normalized.metric);
+    setActiveTab(normalized.activeTab);
+  }
 
   useEffect(() => {
+    if (level === "file" && metric === "python_file_count") {
+      return;
+    }
     const generation = hotspotsGeneration.current + 1;
     hotspotsGeneration.current = generation;
     setError(null);
@@ -109,6 +128,9 @@ export function DashboardPage() {
   }, [hotspotAgg, level, metric]);
 
   useEffect(() => {
+    if (level === "file" && metric === "python_file_count") {
+      return;
+    }
     if (!selectedName || !names.includes(selectedName)) {
       return;
     }
@@ -135,26 +157,9 @@ export function DashboardPage() {
         setComplexityPoints(complexity.series[0]?.points ?? []);
         setSizePoints(size.series[0]?.points ?? []);
         if (categories) {
-          const orders = [
-            ...new Set(categories.series.flatMap((series) => series.points.map((point) => point.commit_order))),
-          ].sort((a, b) => a - b);
-          setCategoryChart(
-            orders.map((order) => {
-              const row: Record<string, number | string> = { order };
-              categories.series.forEach((series) => {
-                const key = series.name.split("/").pop() ?? series.name;
-                row[key] = Number(series.points.find((point) => point.commit_order === order)?.value ?? 0);
-              });
-              return row;
-            }),
-          );
-          setCategorySeries(
-            LINE_CATEGORIES.map(({ key, label }, index) => ({
-              name: key,
-              label,
-              color: CHART_CATEGORY_COLORS[index % CHART_CATEGORY_COLORS.length],
-            })),
-          );
+          const shaped = categoryChartFromTimeseries(categories);
+          setCategoryChart(shaped.chartRows);
+          setCategorySeries(shaped.series);
         } else {
           setCategoryChart([]);
           setCategorySeries([]);
@@ -169,30 +174,30 @@ export function DashboardPage() {
 
   return (
     <Stack gap="lg">
-      <Title order={3}>Metrics dashboard</Title>
+      <Title order={3}>{t("dashboard.title", "Metrics dashboard")}</Title>
       {error ? <Alert color="red">{error}</Alert> : null}
       <Group align="flex-end" wrap="wrap">
         <Select
-          label="Level"
+          label={t("dashboard.level", "Level")}
           data={[
-            { value: "module", label: "Module" },
-            { value: "file", label: "File" },
+            { value: "module", label: t("common.module", "Module") },
+            { value: "file", label: t("common.file", "File") },
           ]}
           value={level}
-          onChange={(value) => setLevel((value as "module" | "file") ?? "module")}
+          onChange={onLevelChange}
           w={140}
         />
         <Select
-          label="Target"
+          label={t("dashboard.target", "Target")}
           data={nameOptions}
           value={selectedName}
           onChange={setSelectedName}
           searchable
-          nothingFoundMessage="No targets"
+          nothingFoundMessage={t("dashboard.noTargets", "No targets")}
           w={320}
         />
         <Select
-          label="Metric"
+          label={t("dashboard.metric", "Metric")}
           data={metricOptions}
           value={metric}
           onChange={(value) => setMetric(value ?? "cyclomatic")}
@@ -200,7 +205,7 @@ export function DashboardPage() {
         />
         {metric !== "python_file_count" ? (
           <Select
-            label="Aggregation"
+            label={t("dashboard.aggregation", "Aggregation")}
             data={AGGS}
             value={agg}
             onChange={(value) => setAgg(value ?? "mean")}
@@ -209,17 +214,21 @@ export function DashboardPage() {
         ) : null}
       </Group>
 
-      <Tabs defaultValue="complexity">
+      <Tabs value={activeTab} onChange={(value) => setActiveTab((value as DashboardTab | null) ?? "complexity")}>
         <Tabs.List>
-          <Tabs.Tab value="complexity">Complexity over time</Tabs.Tab>
-          <Tabs.Tab value="size">Line count history</Tabs.Tab>
-          {level === "module" ? <Tabs.Tab value="categories">Line categories</Tabs.Tab> : null}
-          <Tabs.Tab value="hotspots">Hotspots</Tabs.Tab>
+          <Tabs.Tab value="complexity">{t("dashboard.tabs.complexity", "Complexity over time")}</Tabs.Tab>
+          <Tabs.Tab value="size">{t("dashboard.tabs.size", "Line count history")}</Tabs.Tab>
+          {level === "module" ? <Tabs.Tab value="categories">{t("dashboard.tabs.categories", "Line categories")}</Tabs.Tab> : null}
+          <Tabs.Tab value="hotspots">{t("dashboard.tabs.hotspots", "Hotspots")}</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="complexity" pt="md">
           <MetricChart
-            title={`${metric}${metric === "python_file_count" ? "" : ` (${agg})`} — ${selectedName ?? ""}`}
+            title={t("dashboard.chart.complexityTitle", "{{metric}}{{agg}} - {{name}}", {
+              metric,
+              agg: metric === "python_file_count" ? "" : ` (${agg})`,
+              name: selectedName ?? "",
+            })}
             points={complexityPoints}
             yLabel={metric}
           />
@@ -227,9 +236,9 @@ export function DashboardPage() {
 
         <Tabs.Panel value="size" pt="md">
           <MetricChart
-            title={`Total lines — ${selectedName ?? ""}`}
+            title={t("dashboard.chart.totalLinesTitle", "Total lines - {{name}}", { name: selectedName ?? "" })}
             points={sizePoints}
-            yLabel="lines"
+            yLabel={t("metrics.lines", "lines")}
           />
         </Tabs.Panel>
 
@@ -238,7 +247,7 @@ export function DashboardPage() {
             {categoryChart.length ? (
               <LineChart h={280} data={categoryChart} dataKey="order" series={categorySeries} withLegend withTooltip />
             ) : (
-              <Text c="dimmed">Select a module to load line category history.</Text>
+              <Text c="dimmed">{t("dashboard.empty.categories", "Select a module to load line category history.")}</Text>
             )}
           </Tabs.Panel>
         ) : null}
@@ -246,12 +255,12 @@ export function DashboardPage() {
         <Tabs.Panel value="hotspots" pt="md">
           <SimpleGrid cols={{ base: 1, md: 2 }}>
             <HotspotsTable
-              title={`Top by current ${metric}`}
+              title={t("dashboard.hotspots.current", "Top by current {{metric}}", { metric })}
               items={valueHotspots}
               showGrowth={false}
             />
             <HotspotsTable
-              title={`Top by ${metric} growth`}
+              title={t("dashboard.hotspots.growth", "Top by {{metric}} growth", { metric })}
               items={growthHotspots}
               showGrowth
             />
@@ -260,7 +269,7 @@ export function DashboardPage() {
       </Tabs>
 
       {!selectedName ? (
-        <Text c="dimmed">Run analysis and pick a target to load charts.</Text>
+        <Text c="dimmed">{t("dashboard.empty.pickTarget", "Run analysis and pick a target to load charts.")}</Text>
       ) : null}
     </Stack>
   );

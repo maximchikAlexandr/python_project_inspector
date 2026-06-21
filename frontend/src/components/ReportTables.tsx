@@ -3,31 +3,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   fetchEdgePointsBatch,
-  type EdgePointsResponse,
   type EdgeRow,
-  type EvidenceRow,
   type FileSnapshot,
   type ModuleSnapshot,
 } from "../api/client";
 import {
   edgeKindLabel,
-  isScoringEdgeKind,
   LINE_CATEGORIES,
 } from "../registry/odooProfile";
+import { buildKindRows, type KindRow } from "../transforms/reportTransforms";
 import { formatCodeLines } from "../utils/metricFormat";
 import { EvidenceStack } from "./EvidenceStack";
 import { MetricText } from "./MetricText";
 
 const EDGE_POINTS_BATCH_SIZE = 500;
-
-type KindRow = {
-  source: string;
-  target: string;
-  kind: string;
-  points: number;
-  total: number;
-  evidence: EvidenceRow[];
-};
 
 type Props = {
   modules: ModuleSnapshot[];
@@ -142,24 +131,6 @@ export function FileComplexityTable({ files }: { files: FileSnapshot[] }) {
       </Table>
     </>
   );
-}
-
-function buildKindRows(payload: EdgePointsResponse): KindRow[] {
-  const rows: KindRow[] = [];
-  for (const [kind, points] of Object.entries(payload.kinds ?? {})) {
-    if (!isScoringEdgeKind(kind) || points <= 0) {
-      continue;
-    }
-    rows.push({
-      source: payload.source,
-      target: payload.target,
-      kind,
-      points,
-      total: payload.breakdown.total,
-      evidence: (payload.evidence ?? []).filter((item) => item.kind === kind),
-    });
-  }
-  return rows.sort((left, right) => right.points - left.points || left.kind.localeCompare(right.kind));
 }
 
 export function EdgePointsTable({
