@@ -229,21 +229,18 @@ export type EdgeKindPoint = {
   value: number;
 };
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`${path} -> ${response.status}: ${detail}`);
-  }
-  return response.json() as Promise<T>;
+import { getDataSource } from "./dataSource";
+
+function ds() {
+  return getDataSource();
 }
 
 export function fetchStatus(): Promise<StatusResponse> {
-  return fetchJson("/api/status");
+  return ds().get<StatusResponse>("status");
 }
 
 export function fetchCommits(): Promise<CommitRow[]> {
-  return fetchJson("/api/commits");
+  return ds().get<CommitRow[]>("commits");
 }
 
 export function fetchTimeseries(params: {
@@ -252,17 +249,12 @@ export function fetchTimeseries(params: {
   name?: string;
   agg?: string;
 }): Promise<TimeseriesResponse> {
-  const query = new URLSearchParams({
+  return ds().get<TimeseriesResponse>("metrics/timeseries", {
     level: params.level,
     metric: params.metric,
+    name: params.name,
+    agg: params.agg,
   });
-  if (params.name) {
-    query.set("name", params.name);
-  }
-  if (params.agg) {
-    query.set("agg", params.agg);
-  }
-  return fetchJson(`/api/metrics/timeseries?${query.toString()}`);
 }
 
 export function fetchHotspots(params: {
@@ -272,59 +264,37 @@ export function fetchHotspots(params: {
   limit?: number;
   agg?: string;
 }): Promise<HotspotsResponse> {
-  const query = new URLSearchParams({
+  return ds().get<HotspotsResponse>("hotspots", {
     level: params.level,
     metric: params.metric,
     by: params.by,
-    limit: String(params.limit ?? 20),
+    limit: params.limit,
+    agg: params.agg,
   });
-  if (params.agg) {
-    query.set("agg", params.agg);
-  }
-  return fetchJson(`/api/hotspots?${query.toString()}`);
 }
 
 export function fetchCatalog(level: "module" | "file"): Promise<{ level: string; names: string[] }> {
-  return fetchJson(`/api/catalog?level=${level}`);
+  return ds().get<{ level: string; names: string[] }>("catalog", { level });
 }
 
 export function fetchEdges(commit?: string, includeZeroScore = false): Promise<EdgesResponse> {
-  const query = new URLSearchParams({
-    include_zero_score: String(includeZeroScore),
-  });
-  if (commit) {
-    query.set("commit", commit);
-  }
-  return fetchJson(`/api/edges?${query.toString()}`);
+  return ds().get<EdgesResponse>("edges", { commit, include_zero_score: includeZeroScore });
 }
 
 export function fetchStructureTimeseries(includeZeroScore = false): Promise<StructureTimeseriesResponse> {
-  return fetchJson(`/api/structure/timeseries?include_zero_score=${includeZeroScore}`);
+  return ds().get<StructureTimeseriesResponse>("structure/timeseries", { include_zero_score: includeZeroScore });
 }
 
 export function fetchSnapshotModules(commit?: string): Promise<{ commit_hash: string; modules: ModuleSnapshot[] }> {
-  const query = commit ? `?commit=${commit}` : "";
-  return fetchJson(`/api/snapshot/modules${query}`);
+  return ds().get<{ commit_hash: string; modules: ModuleSnapshot[] }>("snapshot/modules", { commit });
 }
 
 export function fetchSnapshotFiles(commit?: string, module?: string): Promise<{ commit_hash: string; files: FileSnapshot[] }> {
-  const query = new URLSearchParams();
-  if (commit) {
-    query.set("commit", commit);
-  }
-  if (module) {
-    query.set("module", module);
-  }
-  const suffix = query.toString() ? `?${query.toString()}` : "";
-  return fetchJson(`/api/snapshot/files${suffix}`);
+  return ds().get<{ commit_hash: string; files: FileSnapshot[] }>("snapshot/files", { commit, module });
 }
 
 export function fetchGraph(commit?: string, includeZeroScore = false): Promise<GraphResponse> {
-  const query = new URLSearchParams({ include_zero_score: String(includeZeroScore) });
-  if (commit) {
-    query.set("commit", commit);
-  }
-  return fetchJson(`/api/graph?${query.toString()}`);
+  return ds().get<GraphResponse>("graph", { commit, include_zero_score: includeZeroScore });
 }
 
 export function fetchEdgePointsBatch(
@@ -332,27 +302,20 @@ export function fetchEdgePointsBatch(
   commit?: string,
   includeZeroScore = false,
 ): Promise<{ commit_hash: string; edges: EdgePointsResponse[]; missing: { source: string; target: string }[] }> {
-  return fetchJson("/api/edge-points/batch", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      pairs,
-      commit: commit ?? null,
-      include_zero_score: includeZeroScore,
-    }),
-  });
+  return ds().post<{ commit_hash: string; edges: EdgePointsResponse[]; missing: { source: string; target: string }[] }>(
+    "edge-points/batch",
+    { pairs, commit: commit ?? null, include_zero_score: includeZeroScore },
+  );
 }
 
 export function fetchFailures(commit?: string): Promise<FailuresResponse> {
-  const query = commit ? `?commit=${commit}` : "";
-  return fetchJson(`/api/failures${query}`);
+  return ds().get<FailuresResponse>("failures", { commit });
 }
 
 export function fetchRelationsDiff(commitA: string, commitB: string): Promise<RelationsDiffResponse> {
-  return fetchJson(`/api/relations/diff?commit_a=${commitA}&commit_b=${commitB}`);
+  return ds().get<RelationsDiffResponse>("relations/diff", { commit_a: commitA, commit_b: commitB });
 }
 
 export function fetchEdgeKindTimeseries(kind?: string): Promise<{ points: EdgeKindPoint[] }> {
-  const query = kind ? `?kind=${encodeURIComponent(kind)}` : "";
-  return fetchJson(`/api/edge-kinds/timeseries${query}`);
+  return ds().get<{ points: EdgeKindPoint[] }>("edge-kinds/timeseries", { kind });
 }

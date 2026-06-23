@@ -1,4 +1,4 @@
-"""Pydantic response models for the FastAPI boundary."""
+"""Transport-neutral API response schemas shared by the FastAPI server and the stdio RPC servant."""
 
 from __future__ import annotations
 

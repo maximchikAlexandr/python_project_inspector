@@ -59,3 +59,35 @@ cd frontend && npm run dev
 ```
 
 The DuckDB history store lives in `<repo>/.ppi/history.duckdb` (git-ignored). Worktree, lock files, and runtime metadata stay under `~/.local/share/ppi/` (or `--analysis-dir`).
+
+## VS Code extension
+
+A thin bridge extension lets you analyze a workspace and view the dashboard
+inside VS Code (Stage 5). It spawns the `ppi` CLI (`analyze --json` for progress;
+`rpc` for the read-only dashboard data) and hosts the existing React dashboard in
+a Webview — no HTTP server is started for the panel.
+
+Build the webview bundle and the extension:
+
+```bash
+cd frontend && npm install && npm run build:webview   # -> vscode-extension/dist-webview
+cd ../vscode-extension && npm install && npm run build  # -> dist/extension.js
+```
+
+Package and install locally:
+
+```bash
+cd vscode-extension && npm run package   # -> ppi-vscode-0.1.0.vsix
+code --install-extension ./ppi-vscode-0.1.0.vsix
+```
+
+Commands: `PPI: Analyze Project`, `PPI: Analyze Project (Rebuild)`, `PPI: Open
+Dashboard`, `PPI: Cancel Analysis`. Settings: `ppi.profile`, `ppi.analysisDir`,
+`ppi.pythonExecutable`, `ppi.cliPath` (workspace-over-global precedence).
+
+Machine-readable progress stream and read-only JSON-RPC query surface:
+
+```bash
+uv run ppi --repo /path/to/repo analyze --json          # JSON-lines progress events
+uv run ppi --repo /path/to/repo rpc                      # stdio JSON-RPC query servant
+```

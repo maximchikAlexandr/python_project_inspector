@@ -8,10 +8,13 @@ import json
 import subprocess
 import sys
 import time
+import traceback
 import uuid
 import webbrowser
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -21,6 +24,7 @@ from ppi.core.odoo.pipeline import ReportConfig, build_report_config
 from ppi.history import git
 from ppi.history.walker import cleanup_worktree, walk_history
 from ppi.history.worktree import remove_worktree
+from ppi.query.rpc_server import serve_rpc
 from ppi.runtime import lock as project_lock
 from ppi.runtime.log import get_logger, set_verbose
 from ppi.runtime.names import parse_module_file_path
@@ -35,6 +39,13 @@ from ppi.runtime.paths import (
     store_path,
     worktree_path,
     writer_lock_path,
+)
+from ppi.runtime.progress import (
+    CommitProgress,
+    RunCompleted,
+    RunFailed,
+    RunStarted,
+    emit,
 )
 from ppi.storage import schema
 from ppi.storage.queries import QueryNotFoundError, StoreReader
@@ -132,7 +143,8 @@ def _assert_store_metadata(ctx: CliContext, stored: ProjectRef) -> None:
         )
     if stored.profile != ctx.profile:
         raise click.ClickException(
-            f"Store contains profile {stored.profile!r}; rerun analyze with profile {ctx.profile!r}.",
+            f"Store contains profile {stored.profile!r}; "
+            f"rerun analyze with profile {ctx.profile!r}.",
         )
 
 
@@ -163,7 +175,9 @@ def _resolve_context(
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
-@click.option("--repo", type=click.Path(exists=True, file_okay=False, path_type=Path), required=True)
+@click.option(
+    "--repo", type=click.Path(exists=True, file_okay=False, path_type=Path), required=True
+)
 @click.option("--branch", default=None, help="Branch to analyze; defaults to current branch.")
 @click.option("--profile", default="odoo", show_default=True)
 @click.option(
@@ -207,11 +221,24 @@ def cli(
     "--addons-path",
     "addons_paths",
     multiple=True,
-    help="Relative addons root inside the worktree; repeat for multiple roots. Defaults to worktree root.",
+    help=(
+        "Relative addons root inside the worktree; repeat for multiple roots. "
+        "Defaults to worktree root."
+    ),
 )
-@click.option("--module-prefix", "module_prefixes", multiple=True, help="Include modules with this prefix.")
-@click.option("--include-module", "include_modules", multiple=True, help="Include exact module names.")
+@click.option(
+    "--module-prefix", "module_prefixes", multiple=True, help="Include modules with this prefix."
+)
+@click.option(
+    "--include-module", "include_modules", multiple=True, help="Include exact module names."
+)
 @click.option("--all-modules", "all_modules", is_flag=True, help="Include every discovered module.")
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    help="Emit machine-readable JSON-lines progress events on stdout and suppress human output.",
+)
 @pass_context
 def analyze(
     ctx: CliContext,
@@ -221,6 +248,7 @@ def analyze(
     module_prefixes: tuple[str, ...],
     include_modules: tuple[str, ...],
     all_modules: bool,
+    json_output: bool,
 ) -> None:
     """Walk non-merge commit history and collect metrics."""
     if ctx.verbose:
@@ -260,11 +288,13 @@ def analyze(
                     )
                 if stored.branch != branch_name:
                     raise click.ClickException(
-                        f"Branch changed from {stored.branch!r} to {branch_name!r}; rerun with --rebuild.",
+                        f"Branch changed from {stored.branch!r} to {branch_name!r}; "
+                        f"rerun with --rebuild.",
                     )
                 if stored.profile != ctx.profile:
                     raise click.ClickException(
-                        f"Profile changed from {stored.profile!r} to {ctx.profile!r}; rerun with --rebuild.",
+                        f"Profile changed from {stored.profile!r} to {ctx.profile!r}; "
+                        f"rerun with --rebuild.",
                     )
                 if stored.scope != scope:
                     raise click.ClickException(
@@ -304,6 +334,7 @@ def analyze(
             mode,
             addons_paths,
             report_config,
+            json_output,
         )
 
     try:
@@ -324,6 +355,80 @@ def _batch_succeeded(batch: AnalysisBatch) -> bool:
     return True
 
 
+def _exit_reason(exc: BaseException) -> str:
+    """Map an exception to the ``RunFailed.exit_reason`` closed enum.
+
+    Contract: ``cli_error, schema_incompatible, lock_busy, bad_workspace, unknown``.
+    """
+    if isinstance(exc, schema.SchemaIncompatibleError):
+        return "schema_incompatible"
+    if isinstance(exc, RuntimeError) and "locked" in str(exc).lower():
+        return "lock_busy"
+    if isinstance(exc, click.ClickException):
+        message = str(exc).lower()
+        if any(token in message for token in ("repo", "branch", "workspace", "directory")):
+            return "bad_workspace"
+        return "cli_error"
+    return "unknown"
+
+
+def _stderr_tail(exc: BaseException) -> str:
+    """Build a capped stderr tail for a ``RunFailed`` event (SC-006)."""
+    if isinstance(exc, click.ClickException):
+        text = exc.message
+    else:
+        text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    return text[-2000:]
+
+
+class _JsonProgressSink:
+    """Progress sink for ``--json``: emit one ``CommitProgress`` event per commit."""
+
+    def __init__(self, commits_total: int) -> None:
+        self.commits_total = commits_total
+
+    def update(self, processed: int, short_hash: str) -> None:
+        """Emit a progress event (no human-readable output)."""
+        emit(
+            CommitProgress(
+                processed=processed,
+                commits_total=self.commits_total,
+                short_hash=short_hash,
+            ),
+        )
+
+
+class _BarProgressSink:
+    """Progress sink for the human path: update the ``click.progressbar``."""
+
+    def __init__(self, bar: Any, branch_name: str, commits_total: int) -> None:
+        self._bar = bar
+        self._branch_name = branch_name
+        self._commits_total = commits_total
+
+    def update(self, processed: int, short_hash: str) -> None:
+        """Advance the bar and relabel it with the current commit."""
+        self._bar.label = (
+            f"Analyzing {self._branch_name} [{processed}/{self._commits_total}] {short_hash}"
+        )
+        self._bar.update(1)
+
+
+@contextmanager
+def _progress_sink(json_output: bool, commits_total: int, branch_name: str):
+    """Yield one progress sink, suppressing the human bar when ``json_output``."""
+    if json_output:
+        yield _JsonProgressSink(commits_total)
+    else:
+        with click.progressbar(
+            length=commits_total,
+            label=f"Analyzing {branch_name}",
+            show_eta=True,
+            show_pos=True,
+        ) as bar:
+            yield _BarProgressSink(bar, branch_name, commits_total)
+
+
 def _run_analyze_loop(
     ctx: CliContext,
     branch_name: str,
@@ -335,12 +440,31 @@ def _run_analyze_loop(
     mode: str,
     addons_paths: tuple[str, ...],
     report_config: ReportConfig,
+    json_output: bool = False,
 ) -> None:
-    """Execute the history walk with progress reporting."""
+    """Execute the history walk with progress reporting.
+
+    When ``json_output`` is set, emit ``ProgressEvent`` JSON-lines on stdout and
+    suppress the human-readable progress bar and summary lines.
+    """
     state = None
     run_status = "failed"
     commits_succeeded = 0
     commits_failed = 0
+    processed = 0
+
+    def _record_outcome(batch: AnalysisBatch, succeeded: bool) -> None:
+        """Tally one batch outcome and log per-commit failures when present."""
+        nonlocal commits_succeeded, commits_failed
+        if succeeded:
+            commits_succeeded += 1
+            return
+        if batch.failures:
+            commits_failed += 1
+            for failure in batch.failures:
+                target = failure.file_path or batch.commit.commit_hash[:8]
+                log.warning("analysis failed at %s: %s", target, failure.error_text)
+
     try:
         prepared = walk_history(
             ctx.repo,
@@ -354,22 +478,23 @@ def _run_analyze_loop(
         if prepared.is_error():
             raise click.ClickException(prepared.error)
         batches, state = prepared.ok
+        if json_output:
+            emit(
+                RunStarted(
+                    run_id=run_id,
+                    branch=branch_name,
+                    mode=mode,
+                    commits_total=state.commits_total,
+                ),
+            )
         jsonl_file = jsonl_output.open("w", encoding="utf-8") if jsonl_output else None
         loop_started = time.perf_counter()
-        processed = 0
         try:
-            with click.progressbar(
-                length=state.commits_total,
-                label=f"Analyzing {branch_name}",
-                show_eta=True,
-                show_pos=True,
-            ) as bar:
+            with _progress_sink(json_output, state.commits_total, branch_name) as sink:
                 for batch in batches:
                     processed += 1
                     short_hash = batch.commit.commit_hash[:8]
-                    bar.label = (
-                        f"Analyzing {branch_name} [{processed}/{state.commits_total}] {short_hash}"
-                    )
+                    sink.update(processed, short_hash)
                     if jsonl_file is not None:
                         jsonl_file.write(batch_to_json(batch) + "\n")
                     succeeded = _batch_succeeded(batch)
@@ -379,18 +504,31 @@ def _run_analyze_loop(
                         if succeeded:
                             commits_failed += 1
                         raise
-                    if succeeded:
-                        commits_succeeded += 1
-                    elif batch.failures:
-                        commits_failed += 1
-                        for failure in batch.failures:
-                            target = failure.file_path or batch.commit.commit_hash[:8]
-                            log.warning("analysis failed at %s: %s", target, failure.error_text)
-                    bar.update(1)
+                    _record_outcome(batch, succeeded)
         finally:
             if jsonl_file is not None:
                 jsonl_file.close()
         run_status = "completed"
+        if json_output:
+            emit(
+                RunCompleted(
+                    run_id=run_id,
+                    commits_succeeded=commits_succeeded,
+                    commits_failed=commits_failed,
+                    duration_ms=int((time.perf_counter() - loop_started) * 1000),
+                ),
+            )
+    except BaseException as exc:
+        if json_output:
+            emit(
+                RunFailed(
+                    run_id=run_id,
+                    exit_reason=_exit_reason(exc),
+                    message=str(exc),
+                    stderr_tail=_stderr_tail(exc),
+                ),
+            )
+        raise
     finally:
         cleanup_worktree(ctx.repo, ctx.analysis_dir)
         writer.finish_run(
@@ -406,7 +544,7 @@ def _run_analyze_loop(
                 commits_failed=commits_failed,
             ),
         )
-    if state is None or run_status != "completed":
+    if json_output or state is None or run_status != "completed":
         return
     click.echo(
         f"Analyzed {processed}/{state.commits_total} commits "
@@ -444,7 +582,9 @@ def _run_analyze_loop(
     required=True,
 )
 @click.option("--module", "module_name", default=None)
-@click.option("--file", "file_path", default=None, help="Filter to one file as module/relative/path.")
+@click.option(
+    "--file", "file_path", default=None, help="Filter to one file as module/relative/path."
+)
 @click.option("--commit", "commit_hash", default=None, help="Snapshot selector (default: latest).")
 @click.option("--commit-b", "commit_b", default=None, help="Second commit for relations-diff.")
 @click.option("--source", default=None, help="Edge source module.")
@@ -456,7 +596,9 @@ def _run_analyze_loop(
     default="mean",
     show_default=True,
 )
-@click.option("--include-zero-score", is_flag=True, help="Include score==0 edges in graph/edge reads.")
+@click.option(
+    "--include-zero-score", is_flag=True, help="Include score==0 edges in graph/edge reads."
+)
 @click.option(
     "--format",
     "output_format",
@@ -511,7 +653,9 @@ def query(
             payload = reader.graph_at_commit(commit_hash, include_zero_score=include_zero_score)
         elif metric == "edge-points":
             if not source or not target:
-                raise click.ClickException("--source and --target are required for edge-points metric")
+                raise click.ClickException(
+                    "--source and --target are required for edge-points metric"
+                )
             payload = reader.edge_points(
                 source,
                 target,
@@ -520,7 +664,9 @@ def query(
             )
         elif metric == "edge-evidence":
             if not source or not target:
-                raise click.ClickException("--source and --target are required for edge-evidence metric")
+                raise click.ClickException(
+                    "--source and --target are required for edge-evidence metric"
+                )
             payload = reader.edge_evidence_for_pair(
                 source,
                 target,
@@ -545,7 +691,9 @@ def query(
             payload = reader.edge_kind_timeseries(kind)
         elif metric == "relations-diff":
             if not commit_hash or not commit_b:
-                raise click.ClickException("--commit and --commit-b are required for relations-diff metric")
+                raise click.ClickException(
+                    "--commit and --commit-b are required for relations-diff metric"
+                )
             payload = reader.relations_diff(commit_hash, commit_b)
         elif metric == "failures":
             payload = reader.failures_at_commit(commit_hash)
@@ -622,6 +770,13 @@ def serve(ctx: CliContext, host: str, port: int, open_browser: bool) -> None:
 
 
 @cli.command()
+@pass_context
+def rpc(ctx: CliContext) -> None:
+    """Run a long-lived read-only JSON-RPC query servant over stdio."""
+    serve_rpc(ctx.repo)
+
+
+@cli.command()
 @click.option(
     "--recover-stale",
     is_flag=True,
@@ -635,9 +790,17 @@ def doctor(ctx: CliContext, recover_stale: bool) -> None:
             click.echo(f"RECOVERED {action}")
     checks: list[tuple[str, bool, str]] = []
     git_check = git.git_version(ctx.repo)
-    checks.append(("git", git_check.is_ok(), git_check.ok.strip() if git_check.is_ok() else git_check.error))
+    checks.append(
+        ("git", git_check.is_ok(), git_check.ok.strip() if git_check.is_ok() else git_check.error)
+    )
     branch_check = git.resolve_branch(ctx.repo, ctx.branch)
-    checks.append(("branch", branch_check.is_ok(), branch_check.ok if branch_check.is_ok() else branch_check.error))
+    checks.append(
+        (
+            "branch",
+            branch_check.is_ok(),
+            branch_check.ok if branch_check.is_ok() else branch_check.error,
+        )
+    )
     writable = False
     writable_message = ""
     try:
@@ -665,7 +828,9 @@ def doctor(ctx: CliContext, recover_stale: bool) -> None:
         text=True,
     )
     if tracked.returncode == 0:
-        click.echo("WARN .ppi is tracked in git; self-ignoring .gitignore cannot untrack committed files")
+        click.echo(
+            "WARN .ppi is tracked in git; self-ignoring .gitignore cannot untrack committed files"
+        )
     store_ok = True
     store_message = "store not created yet"
     if store_path(ctx.repo).is_file():
@@ -686,13 +851,21 @@ def doctor(ctx: CliContext, recover_stale: bool) -> None:
     locked = project_lock.is_locked(writer_lock_path(ctx.repo))
     checks.append(("writer_lock", not locked, "free" if not locked else "locked"))
     worktree_exists = worktree_path(ctx.analysis_dir).exists()
-    checks.append(("worktree", not worktree_exists, "absent" if not worktree_exists else "stale worktree present"))
+    checks.append(
+        (
+            "worktree",
+            not worktree_exists,
+            "absent" if not worktree_exists else "stale worktree present",
+        )
+    )
     failed = False
     for name, ok, detail in checks:
         status = "OK" if ok else "FAIL"
         click.echo(f"{status} {name}: {detail}")
         failed = failed or not ok
     if not recover_stale and (locked or worktree_exists):
-        click.echo("Hint: rerun with --recover-stale to remove stale worktree or orphan lock files.")
+        click.echo(
+            "Hint: rerun with --recover-stale to remove stale worktree or orphan lock files."
+        )
     if failed:
         sys.exit(1)

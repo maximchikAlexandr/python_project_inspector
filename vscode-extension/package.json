@@ -1,0 +1,106 @@
+{
+  "name": "ppi-vscode",
+  "displayName": "Python Project Inspector",
+  "publisher": "ppi",
+  "version": "0.1.0",
+  "description": "Analyze Python/Odoo projects and inspect metrics from inside VS Code.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://example.com/ppi"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "ppi.analyze",
+        "title": "Analyze Project",
+        "category": "PPI"
+      },
+      {
+        "command": "ppi.openDashboard",
+        "title": "Open Dashboard",
+        "category": "PPI"
+      },
+      {
+        "command": "ppi.cancelAnalysis",
+        "title": "Cancel Analysis",
+        "category": "PPI"
+      },
+      {
+        "command": "ppi.analyzeRebuild",
+        "title": "Analyze Project (Rebuild)",
+        "category": "PPI"
+      }
+    ],
+    "configuration": {
+      "title": "Python Project Inspector",
+      "properties": {
+        "ppi.profile": {
+          "type": "string",
+          "enum": [
+            "python",
+            "odoo"
+          ],
+          "enumDescriptions": [
+            "Plain Python project (reserved; requires CLI support)",
+            "Odoo project"
+          ],
+          "default": "odoo",
+          "scope": "resource",
+          "description": "Analysis profile for the workspace. NOTE: the ppi CLI currently supports `odoo`; `python` is reserved until profile support lands upstream."
+        },
+        "ppi.analysisDir": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Custom analysis/results directory. Empty = CLI default for the repo."
+        },
+        "ppi.pythonExecutable": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "Python interpreter used to run ppi (e.g. /usr/bin/python3). If set, ppi is run as `<exe> -m ppi`."
+        },
+        "ppi.cliPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "Explicit path to the ppi console script. Used if ppi.pythonExecutable is empty."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "node esbuild.mjs --production",
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package": "vsce package",
+    "publish": "vsce publish",
+    "test": "npm run test:unit",
+    "test:unit": "node esbuild.test.mjs && node --test dist-test/analyzeRunner.test.js dist-test/settings.test.js dist-test/cancel.test.js dist-test/dashboard.test.js dist-test/bridge.test.js",
+    "typecheck": "tsc --noEmit",
+    "test:integration": "node ./test/runTest.js",
+    "test:webview": "node esbuild.test.mjs && node --test dist-test/webview-render.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.100.0",
+    "@types/vscode-webview": "^1.57.0",
+    "@vscode/test-electron": "^2.4.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.23.0",
+    "puppeteer-core": "^23.11.1",
+    "typescript": "^5.9.0"
+  }
+}

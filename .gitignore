@@ -15,3 +15,12 @@ dist/
 node_modules/
 frontend/dist/
 *.duckdb
+# VS Code extension build artifacts
+vscode-extension/dist/
+vscode-extension/dist-webview/
+vscode-extension/node_modules/
+vscode-extension/*.vsix
+vscode-extension/.vscode-test/
+vscode-extension/dist-test/
+# Frontend webview build
+frontend/dist-webview/

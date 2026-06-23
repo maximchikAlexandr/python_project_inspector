@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "i18n:extract": "node ./scripts/i18next-cli.mjs extract",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:webview": "vite build --config vite.webview.config.ts",
+    "test:unit": "vitest run",
+    "test": "vitest run"
   },
   "dependencies": {
     "@mantine/charts": "^7.17.8",
@@ -29,6 +32,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "i18next-cli": "^1.64.1",
     "typescript": "^5.7.3",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "vitest": "^2.1.9"
   }
 }
