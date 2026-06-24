@@ -22,7 +22,6 @@ export interface AnalyzeOptions {
 }
 
 export interface RunHandle {
-  readonly runId: string | null;
   /** Collected CLI stderr (for failure diagnostics, FR-004/SC-006). */
   readonly stderrTail: string;
   cancel(): Promise<void>;
@@ -158,9 +157,6 @@ export function runAnalyze(opts: AnalyzeOptions): RunHandle {
   };
 
   return {
-    get runId() {
-      return runId;
-    },
     get stderrTail() {
       return stderrBuffer;
     },

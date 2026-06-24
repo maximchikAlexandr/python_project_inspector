@@ -38,7 +38,7 @@ Phase 0 research resolves the open technical questions surfaced during clarify a
 
 ## R2 — The `analyze --json` progress contract (FR-019)
 
-**Decision**: Add a `--json` flag to `ppi analyze`. When set, the command emits newline-delimited JSON events on stdout and suppresses the human `click.progressbar`. Events are `msgspec` structs (`ppi.runtime.progress`): `RunStarted` (run_id, branch, mode, commits_total), `CommitProgress` (processed, commits_total, short_hash, phase), `RunCompleted` (run_id, commits_succeeded, commits_failed, duration_ms), `RunFailed` (run_id, exit_reason, message, stderr_tail). The final summary line printed today is folded into `RunCompleted`. `--jsonl` (batch file) remains orthogonal and unchanged.
+**Decision**: Add a `--json` flag to `ppi analyze`. When set, the command emits newline-delimited JSON events on stdout and suppresses the human `click.progressbar`. Events are `msgspec` structs (`ppi.runtime.progress`): `RunStarted` (run_id, branch, mode, commits_total), `CommitProgress` (processed, commits_total, short_hash), `RunCompleted` (run_id, commits_succeeded, commits_failed, duration_ms), `RunFailed` (run_id, exit_reason, message, stderr_tail). The final summary line printed today is folded into `RunCompleted`. `--jsonl` (batch file) remains orthogonal and unchanged.
 
 **Rationale**: reuses the existing `RunMeta` fields and the loop's existing counters; the only change is *output formatting* gated by a flag — analysis logic is untouched (FR-019 "MUST NOT alter analysis logic"). JSON-lines is trivially stream-parsed by the extension's `analyzeRunner`. Non-`--json` runs keep today's terminal output bit-for-bit.
 

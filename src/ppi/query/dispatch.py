@@ -4,8 +4,9 @@ Both ``ppi serve`` (HTTP) and ``ppi rpc`` (stdio JSON-RPC) route dashboard reads
 through this module so behavior is identical (Spec FR-008/SC-003). The dispatcher
 returns pydantic ``schemas`` model instances (or plain dicts/lists) so both
 transports serialize the same JSON. HTTP-specific concerns (status codes,
-opening the store, the writer-lock check) live in the callers; this module
-raises ``QueryError`` for invalid input or missing data.
+opening the store) live in the callers; this module owns the writer-lock check,
+schema-error normalization, and raises ``QueryError`` for invalid input or
+missing data.
 
 Endpoint handlers live in :mod:`ppi.query._handlers`; this module owns only the
 method table, the router, ``build_status``, and error normalization.

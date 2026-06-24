@@ -13,7 +13,7 @@ A single invocation of `ppi analyze` against a workspace, owned by the extension
 - `workspace_folder: str` — absolute path of the analyzed folder (FR-017 selection result).
 - `profile: "python" | "odoo"` — resolved profile (FR-011).
 - `status: "queued" | "running" | "completed" | "failed" | "cancelled"` — run status (FR-020 adds `cancelled`).
-- `progress: CommitProgress | None` — last progress event (processed/total/short_hash/phase).
+- `progress: CommitProgress | None` — last progress event (processed/total/short_hash).
 - `error: RunFailure | None` — populated on `failed`.
 - `cli_process: Subprocess | None` — the spawned `ppi analyze` process handle (cancellable).
 
@@ -57,7 +57,7 @@ The embedded instance of the existing frontend in a Webview panel, bound to a wo
 
 **Variants**:
 - `RunStarted { run_id, branch, mode, commits_total }`
-- `CommitProgress { processed, commits_total, short_hash, phase }`
+- `CommitProgress { processed, commits_total, short_hash }`
 - `RunCompleted { run_id, commits_succeeded, commits_failed, duration_ms }`
 - `RunFailed { run_id, exit_reason, message, stderr_tail }`
 

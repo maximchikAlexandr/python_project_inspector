@@ -162,14 +162,14 @@ def snapshot_files(
     return _dispatch_http(request, "snapshot/files", {"commit": commit, "module": module})
 
 
-@router.get("/snapshot/module/{module_name}", response_model=schemas.ModuleDetailResponse)
+@router.get("/snapshot/module", response_model=schemas.ModuleDetailResponse)
 def snapshot_module_detail(
     request: Request,
-    module_name: str,
+    module: str = Query(...),
     commit: str | None = None,
 ) -> schemas.ModuleDetailResponse:
     """Return one module snapshot at a commit."""
-    return _dispatch_http(request, "snapshot/module", {"module": module_name, "commit": commit})
+    return _dispatch_http(request, "snapshot/module", {"module": module, "commit": commit})
 
 
 @router.get("/snapshot/file", response_model=schemas.FileDetailResponse)

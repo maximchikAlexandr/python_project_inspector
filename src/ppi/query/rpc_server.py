@@ -39,7 +39,14 @@ def serve_rpc(repo: Path) -> None:
     (no per-request cold-open); it is reopened only after a schema incompatibility
     (contracts/query-rpc.md). All method/lock/store/schema checks are owned by
     ``dispatch``; this loop only decodes, dispatches, and serializes.
+
+    The DuckDB store is read from ``repo/.ppi/history.duckdb`` and the writer lock
+    from ``writer_lock_path(repo)``, matching ``ppi analyze`` and ``ppi serve``.
+    ``--analysis-dir`` only affects the worktree used by ``analyze``; the
+    read-only servant has no worktree and ignores it.
     """
+    store_file = store_path(repo)
+    lock_file = writer_lock_path(repo)
     reader: StoreReader | None = None
 
     def get_reader(
@@ -49,7 +56,6 @@ def serve_rpc(repo: Path) -> None:
         nonlocal reader
         if reader is not None:
             return reader, None
-        store_file = store_path(repo)
         if not store_file.is_file():
             return None, None
         try:
@@ -80,8 +86,8 @@ def serve_rpc(repo: Path) -> None:
                 continue
             if request.method == "rpc.close":
                 break
-            writer_active = project_lock.is_locked(writer_lock_path(repo))
-            store_present = store_path(repo).is_file()
+            writer_active = project_lock.is_locked(lock_file)
+            store_present = store_file.is_file()
             rpc_reader, schema_error = get_reader(migrate=not writer_active)
             try:
                 result = dispatch(

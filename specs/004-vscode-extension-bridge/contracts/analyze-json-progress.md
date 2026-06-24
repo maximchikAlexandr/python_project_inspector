@@ -29,9 +29,8 @@ Each line is a JSON object with a `type` discriminator (msgspec tagged union).
 
 ### `CommitProgress`
 ```json
-{"type":"commit_progress","processed":7,"commits_total":412,"short_hash":"a1b2c3d4","phase":"analyze"}
+{"type":"commit_progress","processed":7,"commits_total":412,"short_hash":"a1b2c3d4"}
 ```
-- `phase`: `"analyze"` (current). Reserved for future granular phases.
 - Emitted once per processed commit (the extension may throttle UI updates).
 - Invariant: `0 <= processed <= commits_total`.
 

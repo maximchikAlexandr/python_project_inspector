@@ -14,14 +14,18 @@ export interface QueryBridgeOptions {
   readonly cliArgs: string[];
   readonly repo: string;
   readonly analysisDir?: string;
-  readonly timeoutMs?: number;
-  readonly maxRestarts?: number;
-  readonly restartWindowMs?: number;
 }
+
+// Restart and timeout tuning. Module constants: no external consumer ever
+// overrides these, so exposing them as options was speculative flexibility.
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_RESTARTS = 5;
+const RESTART_WINDOW_MS = 30_000;
 
 interface Pending {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
+  readonly timer: NodeJS.Timeout;
 }
 
 export class QueryBridge {
@@ -34,6 +38,7 @@ export class QueryBridge {
   private stderrTail = "";
   private restartCount = 0;
   private restartWindowStart = 0;
+  private sessionError: string | null = null;
 
   constructor(options: QueryBridgeOptions) {
     this.options = options;
@@ -45,15 +50,13 @@ export class QueryBridge {
       return;
     }
     const now = Date.now();
-    const windowMs = this.options.restartWindowMs ?? 30_000;
-    const maxRestarts = this.options.maxRestarts ?? 5;
-    if (now - this.restartWindowStart > windowMs) {
+    if (now - this.restartWindowStart > RESTART_WINDOW_MS) {
       this.restartCount = 0;
       this.restartWindowStart = now;
     }
     this.restartCount++;
-    if (this.restartCount > maxRestarts) {
-      throw new Error(`ppi rpc exited too many times (${maxRestarts} in ${windowMs}ms). Check the store or CLI.`);
+    if (this.restartCount > MAX_RESTARTS) {
+      throw new Error(`ppi rpc exited too many times (${MAX_RESTARTS} in ${RESTART_WINDOW_MS}ms). Check the store or CLI.`);
     }
     const argv = [...this.options.cliArgs, "--repo", this.options.repo];
     if (this.options.analysisDir?.trim()) {
@@ -70,6 +73,18 @@ export class QueryBridge {
         this.stderrTail = this.stderrTail.slice(-4000);
       }
     });
+    this.proc.on("error", (err) => {
+      this.proc = null;
+      const message = (err as NodeJS.ErrnoException).code === "ENOENT"
+        ? `ppi rpc failed to start: ${err.message}`
+        : `ppi rpc process error: ${err.message}`;
+      this.markSessionError(message);
+      for (const [, entry] of this.pending) {
+        clearTimeout(entry.timer);
+        entry.reject(new Error(message));
+      }
+      this.pending.clear();
+    });
     this.proc.on("exit", () => {
       this.proc = null;
       if (this.disposed) {
@@ -77,10 +92,11 @@ export class QueryBridge {
       }
       // Servant died mid-session: surface the failure to in-flight requests
       // (FR-022) and let the next request lazily restart the servant (FR-023).
-      for (const [id, entry] of this.pending) {
-        this.pending.delete(id);
+      for (const [, entry] of this.pending) {
+        clearTimeout(entry.timer);
         entry.reject(new Error("ppi rpc servant exited unexpectedly" + (this.stderrTail ? ": " + this.stderrTail.slice(-500) : "")));
       }
+      this.pending.clear();
     });
   }
 
@@ -110,15 +126,30 @@ export class QueryBridge {
     }
     const entry = this.pending.get(id);
     if (!entry) {
-      console.warn(`[ppi] protocol violation: unmatched rpc response id ${id}`);
+      // Unmatched/duplicate response is a protocol violation (FR-022): surface
+      // it as a session-level error so the panel can show a controlled signal
+      // instead of a silent console warning.
+      this.markSessionError(`protocol violation: unmatched rpc response id ${id}`);
       return;
     }
     this.pending.delete(id);
+    clearTimeout(entry.timer);
     if (parsed.error) {
       entry.reject(new Error(`${parsed.error.code}: ${parsed.error.message}`));
     } else {
       entry.resolve(parsed.result);
     }
+  }
+
+  /** Mark a non-fatal protocol/lifecycle violation as a session-level error. */
+  private markSessionError(message: string): void {
+    this.sessionError = message;
+    console.warn(`[ppi] ${message}`);
+  }
+
+  /** Last recorded session-level error (protocol violation, spawn failure). */
+  get sessionErrorMessage(): string | null {
+    return this.sessionError;
   }
 
   /** Send a request and await the response. Restarts the servant if it died. */
@@ -135,17 +166,20 @@ export class QueryBridge {
     }
     const id = this.nextId++;
     const payload = JSON.stringify({ id, method, params }) + "\n";
-    const timeoutMs = this.options.timeoutMs ?? 30_000;
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`ppi rpc request timed out: ${method}`));
-      }, timeoutMs);
+      }, REQUEST_TIMEOUT_MS);
+      const wrappedResolve = (value: unknown) => {
+        clearTimeout(timer);
+        resolve(value as T);
+      };
       const wrappedReject = (err: Error) => {
         clearTimeout(timer);
         reject(err);
       };
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject: wrappedReject });
+      this.pending.set(id, { resolve: wrappedResolve, reject: wrappedReject, timer });
       const stdin = this.proc?.stdin;
       if (!stdin || !stdin.write(payload)) {
         this.pending.delete(id);
@@ -162,6 +196,7 @@ export class QueryBridge {
     }
     this.disposed = true;
     for (const entry of this.pending.values()) {
+      clearTimeout(entry.timer);
       entry.reject(new Error("query bridge disposed"));
     }
     this.pending.clear();

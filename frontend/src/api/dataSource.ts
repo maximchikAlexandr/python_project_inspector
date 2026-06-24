@@ -13,7 +13,7 @@ export interface DataSource {
   post<T>(method: string, body: unknown): Promise<T>;
 }
 
-/** Build the HTTP URL for a method, special-casing path-param routes. */
+/** Build the HTTP URL for a method as a query-string against `/api/<method>`. */
 export function httpPath(method: string, params: Record<string, unknown>): string {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {

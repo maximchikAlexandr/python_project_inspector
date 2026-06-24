@@ -23,6 +23,15 @@ const panels = new Map<string, DashboardPanel>();
 let extensionUri: vscode.Uri;
 let status: StatusController;
 
+// Maps internal progress event types to the Webview event names from
+// contracts/webview-bridge.md. Module-level so it is not rebuilt per event.
+const PROGRESS_EVENT_NAME: Record<string, string> = {
+  run_started: "runStarted",
+  commit_progress: "progress",
+  run_completed: "runCompleted",
+  run_failed: "runFailed",
+};
+
 
 export function activate(context: vscode.ExtensionContext): void {
   extensionUri = context.extensionUri;
@@ -45,7 +54,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 async function tryVerifyCli(cliArgs: string[]): Promise<boolean> {
   try {
-    verifyCli(cliArgs);
+    await verifyCli(cliArgs);
     return true;
   } catch (err) {
     if (err instanceof CliNotFound) {
@@ -147,13 +156,7 @@ function onProgress(event: ProgressEvent, folderName: string, folderKey: string)
   }
   const panel = panels.get(folderKey);
   if (panel) {
-    const eventMap: Record<string, string> = {
-      run_started: "runStarted",
-      commit_progress: "progress",
-      run_completed: "runCompleted",
-      run_failed: "runFailed",
-    };
-    const mappedEvent = eventMap[event.type];
+    const mappedEvent = PROGRESS_EVENT_NAME[event.type];
     if (mappedEvent) {
       panel.postEvent(mappedEvent, event as unknown as Record<string, unknown>);
     }

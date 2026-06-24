@@ -65,11 +65,6 @@ def test_rpc_matches_serve_for_all_methods(odoo_sample_repo: Path, tmp_path: Pat
     def http(method: str, params: dict) -> Any:
         if method == "edge-points/batch":
             return client.post("/api/edge-points/batch", json=params).json()
-        if method == "snapshot/module":
-            url = f"/api/snapshot/module/{params['module']}"
-            if params.get("commit"):
-                url += f"?commit={params['commit']}"
-            return client.get(url).json()
         query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None and v != "")
         url = f"/api/{method}" + (f"?{query}" if query else "")
         return client.get(url).json()

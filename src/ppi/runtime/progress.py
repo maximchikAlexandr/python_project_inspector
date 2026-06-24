@@ -42,7 +42,6 @@ class CommitProgress(msgspec.Struct, frozen=True, tag="commit_progress"):
     processed: int
     commits_total: int
     short_hash: str
-    phase: str = "analyze"
 
 
 class RunCompleted(msgspec.Struct, frozen=True, tag="run_completed"):

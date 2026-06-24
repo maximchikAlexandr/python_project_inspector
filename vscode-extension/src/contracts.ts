@@ -23,7 +23,6 @@ export interface CommitProgress {
   readonly processed: number;
   readonly commits_total: number;
   readonly short_hash: string;
-  readonly phase: string;
 }
 
 export interface RunCompleted {

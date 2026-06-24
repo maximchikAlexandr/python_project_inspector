@@ -29,7 +29,10 @@
   },
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onStartupFinished"
+    "onCommand:ppi.analyze",
+    "onCommand:ppi.analyzeRebuild",
+    "onCommand:ppi.openDashboard",
+    "onCommand:ppi.cancelAnalysis"
   ],
   "contributes": {
     "commands": [
@@ -98,16 +101,17 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "node esbuild.mjs --production",
+    "build:webview": "cd ../frontend && npm install && npm run build:webview",
+    "vscode:prepublish": "node esbuild.mjs --production && npm run build:webview",
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "package": "vsce package",
-    "publish": "vsce publish",
+    "package": "npm run vscode:prepublish && vsce package",
+    "publish": "npm run vscode:prepublish && vsce publish",
     "test": "npm run test:unit",
     "test:unit": "node esbuild.test.mjs && node --test dist-test/analyzeRunner.test.js dist-test/settings.test.js dist-test/cancel.test.js dist-test/dashboard.test.js dist-test/bridge.test.js",
     "typecheck": "tsc --noEmit",
     "test:integration": "node ./test/runTest.js",
-    "test:webview": "node esbuild.test.mjs && node --test dist-test/webview-render.test.js"
+    "test:webview": "npm run build:webview && node esbuild.test.mjs && node --test dist-test/webview-render.test.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

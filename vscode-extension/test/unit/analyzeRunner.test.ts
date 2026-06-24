@@ -40,7 +40,7 @@ test("parseProgressLine returns null for noise", () => {
 test("parseProgressChunk splits lines and keeps a partial trailing line", () => {
   const { events, rest } = parseProgressChunk(
     "",
-    '{"type":"run_started","run_id":"x","branch":"main","mode":"incremental","commits_total":1}\n{"type":"commit_progress","processed":1,"commits_total":1,"short_hash":"abcd1234","phase":"analyze"}\n{"type":"run_complet',
+    '{"type":"run_started","run_id":"x","branch":"main","mode":"incremental","commits_total":1}\n{"type":"commit_progress","processed":1,"commits_total":1,"short_hash":"abcd1234"}\n{"type":"run_complet',
   );
   assert.equal(events.length, 2);
   assert.equal(events[0].type, "run_started");

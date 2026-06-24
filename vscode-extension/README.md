@@ -8,13 +8,12 @@ dashboard in a Webview panel.
 ```sh
 npm install
 npm run build      # bundles the extension host to dist/extension.js
+npm run build:webview   # builds the dashboard webview bundle (cd ../frontend && npm run build:webview)
 ```
 
-Build the dashboard webview bundle from the repo root:
-
-```sh
-cd ../frontend && npm install && npm run build:webview
-```
+`npm run package` and `npm run vscode:prepublish` build both the extension host
+and the webview bundle automatically, so packaging never ships a panel without a
+dashboard.
 
 ## Package & install locally
 

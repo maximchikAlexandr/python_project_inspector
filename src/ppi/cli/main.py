@@ -253,26 +253,15 @@ def analyze(
     """Walk non-merge commit history and collect metrics."""
     if ctx.verbose:
         log.debug("analysis dir: %s", ctx.analysis_dir)
-    branch_result = git.resolve_branch(ctx.repo, ctx.branch)
-    if branch_result.is_error():
-        raise click.ClickException(branch_result.error)
-    branch_name = branch_result.ok
-    report_config = build_report_config(
-        project_label=ctx.repo.name,
-        module_prefixes=module_prefixes,
-        include_modules=include_modules,
-        all_modules=all_modules or (not module_prefixes and not include_modules),
-    )
-    scope = report_config_to_scope(report_config)
-    skip_commits: set[str] = set()
-    writer: StoreWriter | None = None
     run_id = str(uuid.uuid4())
     started_at = git.utc_now_epoch()
     mode = "rebuild" if rebuild else "incremental"
     project_id = project_id_from_repo(ctx.repo)
+    loop_entered = False
+    writer: StoreWriter | None = None
 
-    def _run() -> None:
-        nonlocal writer, skip_commits
+    def _run(branch_name: str, scope: str, skip_commits: set[str]) -> None:
+        nonlocal writer, loop_entered
         try:
             writer = StoreWriter(store_path(ctx.repo))
         except schema.SchemaIncompatibleError as exc:
@@ -323,6 +312,7 @@ def analyze(
                 commits_failed=0,
             ),
         )
+        loop_entered = True
         _run_analyze_loop(
             ctx,
             branch_name,
@@ -338,10 +328,33 @@ def analyze(
         )
 
     try:
+        branch_result = git.resolve_branch(ctx.repo, ctx.branch)
+        if branch_result.is_error():
+            raise click.ClickException(branch_result.error)
+        branch_name = branch_result.ok
+        report_config = build_report_config(
+            project_label=ctx.repo.name,
+            module_prefixes=module_prefixes,
+            include_modules=include_modules,
+            all_modules=all_modules or (not module_prefixes and not include_modules),
+        )
+        scope = report_config_to_scope(report_config)
+        skip_commits: set[str] = set()
         with project_lock.write_lock(writer_lock_path(ctx.repo)):
-            _run()
-    except RuntimeError as exc:
-        raise click.ClickException(str(exc)) from exc
+            _run(branch_name, scope, skip_commits)
+    except BaseException as exc:
+        if json_output and not loop_entered:
+            emit(
+                RunFailed(
+                    run_id=run_id,
+                    exit_reason=_exit_reason(exc),
+                    message=str(exc),
+                    stderr_tail=_stderr_tail(exc),
+                ),
+            )
+        if isinstance(exc, RuntimeError) and not isinstance(exc, click.ClickException):
+            raise click.ClickException(str(exc)) from exc
+        raise
     finally:
         if writer is not None:
             writer.close()
@@ -772,7 +785,12 @@ def serve(ctx: CliContext, host: str, port: int, open_browser: bool) -> None:
 @cli.command()
 @pass_context
 def rpc(ctx: CliContext) -> None:
-    """Run a long-lived read-only JSON-RPC query servant over stdio."""
+    """Run a long-lived read-only JSON-RPC query servant over stdio.
+
+    The store and writer lock are resolved from ``repo`` (same as ``analyze``);
+    ``--analysis-dir`` on the CLI group only affects the worktree used by
+    ``analyze`` and is ignored here.
+    """
     serve_rpc(ctx.repo)
 
 

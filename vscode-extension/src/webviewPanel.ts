@@ -14,13 +14,22 @@ import { QueryBridge } from "./queryBridge";
 
 const WEBVIEW_ID = "ppi.dashboard";
 
+// Closed enum from contracts/webview-bridge.md; module-level so it is not
+// rebuilt per message. Matches the contributed `ppi.*` command ids, not the
+// generic `workbench.action.openSettings`, so the contract-compliant message
+// from the Webview passes the allowlist.
+const ALLOWED_COMMANDS = new Set([
+  "ppi.analyze",
+  "ppi.cancelAnalysis",
+  "ppi.openSettings",
+]);
+
 export interface DashboardPanelOptions {
   readonly extensionUri: vscode.Uri;
   readonly cliArgs: string[];
   readonly repo: string;
   readonly analysisDir?: string;
   readonly onDispose?: () => void;
-  readonly onEvent?: (event: unknown) => void;
 }
 
 export class DashboardPanel {
@@ -137,6 +146,15 @@ export class DashboardPanel {
     }
     const msg = message as { kind?: string; id?: number; method?: string; params?: Record<string, unknown>; command?: string };
     if (msg.kind === "request" && msg.id !== undefined && msg.method) {
+      const sessionError = this.bridge.sessionErrorMessage;
+      if (sessionError) {
+        this.panel.webview.postMessage({
+          kind: "response",
+          id: msg.id,
+          error: { code: "TRANSPORT_ERROR", message: sessionError },
+        });
+        return;
+      }
       try {
         const result = await this.bridge.request(msg.method, msg.params ?? {});
         this.panel.webview.postMessage({ kind: "response", id: msg.id, result });
@@ -148,12 +166,8 @@ export class DashboardPanel {
         });
       }
     } else if (msg.kind === "command" && msg.command) {
-      const allowedCommands = new Set([
-        "ppi.analyze",
-        "ppi.cancelAnalysis",
-        "workbench.action.openSettings",
-      ]);
-      if (allowedCommands.has(msg.command)) {
+      // Closed enum from contracts/webview-bridge.md.
+      if (ALLOWED_COMMANDS.has(msg.command)) {
         void vscode.commands.executeCommand(msg.command);
       }
     }
