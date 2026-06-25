@@ -15,22 +15,17 @@ import { buildKindRows, type KindRow } from "../transforms/reportTransforms";
 import { formatCodeLines } from "../utils/metricFormat";
 import { EvidenceStack } from "./EvidenceStack";
 import { MetricText } from "./MetricText";
+import { filterFileRows, sortModuleLinesRows } from "./tableViewModels";
 
 const EDGE_POINTS_BATCH_SIZE = 500;
 
 type Props = {
-  modules: ModuleSnapshot[];
+  readonly modules: readonly ModuleSnapshot[];
 };
 
 export function ModuleLinesTable({ modules }: Props) {
   const [filter, setFilter] = useState("");
-  const rows = useMemo(
-    () =>
-      [...modules]
-        .filter((module) => module.module_name.includes(filter))
-        .sort((left, right) => right.total_lines - left.total_lines || left.module_name.localeCompare(right.module_name)),
-    [filter, modules],
-  );
+  const rows = useMemo(() => sortModuleLinesRows(modules, filter), [filter, modules]);
   return (
     <>
       <TextInput label="Module filter" value={filter} onChange={(event) => setFilter(event.currentTarget.value)} mb="sm" />
@@ -75,15 +70,11 @@ export function ModuleLinesTable({ modules }: Props) {
   );
 }
 
-export function FileComplexityTable({ files }: { files: FileSnapshot[] }) {
+export function FileComplexityTable({ files }: { readonly files: readonly FileSnapshot[] }) {
   const [moduleFilter, setModuleFilter] = useState("");
   const [pathFilter, setPathFilter] = useState("");
   const rows = useMemo(
-    () =>
-      files.filter(
-        (file) =>
-          file.module_name.includes(moduleFilter) && file.relative_path.includes(pathFilter),
-      ),
+    () => filterFileRows(files, moduleFilter, pathFilter),
     [files, moduleFilter, pathFilter],
   );
   return (
@@ -139,10 +130,10 @@ export function EdgePointsTable({
   includeZeroScore,
   moduleOptions,
 }: {
-  edges: EdgeRow[];
-  commit: string;
-  includeZeroScore: boolean;
-  moduleOptions: string[];
+  readonly edges: readonly EdgeRow[];
+  readonly commit: string;
+  readonly includeZeroScore: boolean;
+  readonly moduleOptions: readonly string[];
 }) {
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [targetFilter, setTargetFilter] = useState<string | null>(null);

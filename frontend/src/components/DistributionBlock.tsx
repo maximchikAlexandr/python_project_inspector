@@ -4,8 +4,8 @@ import type { MetricDistribution } from "../api/client";
 import { formatMetricValue, formatStatsLine } from "../utils/metricFormat";
 
 type Props = {
-  label: string;
-  dist: MetricDistribution;
+  readonly label: string;
+  readonly dist: MetricDistribution;
 };
 
 export function DistributionBlock({ label, dist }: Props) {

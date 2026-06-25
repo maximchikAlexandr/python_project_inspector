@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { filter, map } from "remeda";
 
 import type { CommitRow, FileSnapshot, GraphEdge, GraphNode } from "../api/client";
+import { layoutNodesToMap, pinnedFromLayout, type LayoutNodePosition } from "../domain/layoutCodec";
 import { commitPositionLabel } from "../transforms/snapshotTransforms";
 import type {
   LayoutCommandKind,
@@ -13,37 +13,22 @@ import { useGraphLayoutStore } from "./useGraphLayoutStore";
 import { useGraphSettings } from "./useGraphSettings";
 import { graphBreakdownKindMeta } from "../registry/odooProfile";
 
-type LayoutNodeMap = Map<string, { x: number; y: number; pinned: boolean }>;
+type LayoutNodeMap = Map<string, LayoutNodePosition>;
 
 type Args = {
-  commits: CommitRow[];
-  selectedCommit: string | null;
-  setSelectedCommit: (commit: string | null | ((current: string | null) => string | null)) => void;
-  graphNodes: GraphNode[];
-  graphEdges: GraphEdge[];
-  selectedModule: string | null;
-  setSelectedModule: (moduleName: string | null) => void;
-  setSelectedFile: (file: FileSnapshot | null) => void;
-  setHoveredFile: (file: FileSnapshot | null) => void;
-  projectKey: string | null;
-  loadingGraph: boolean;
-  setFocusNotice: (notice: string | null) => void;
+  readonly commits: readonly CommitRow[];
+  readonly selectedCommit: string | null;
+  readonly setSelectedCommit: (commit: string | null | ((current: string | null) => string | null)) => void;
+  readonly graphNodes: readonly GraphNode[];
+  readonly graphEdges: readonly GraphEdge[];
+  readonly selectedModule: string | null;
+  readonly setSelectedModule: (moduleName: string | null) => void;
+  readonly setSelectedFile: (file: FileSnapshot | null) => void;
+  readonly setHoveredFile: (file: FileSnapshot | null) => void;
+  readonly projectKey: string | null;
+  readonly loadingGraph: boolean;
+  readonly setFocusNotice: (notice: string | null) => void;
 };
-
-function layoutNodesToMap(
-  nodes: Record<string, { x: number; y: number; pinned: boolean }>,
-): LayoutNodeMap {
-  return new Map(Object.entries(nodes));
-}
-
-function pinnedFromLayout(nodes: Record<string, { x: number; y: number; pinned: boolean }>): Record<string, boolean> {
-  return Object.fromEntries(
-    map(
-      filter(Object.entries(nodes), ([, position]) => position.pinned),
-      ([id]) => [id, true],
-    ),
-  );
-}
 
 function nextTimelapseState({
   action,
@@ -52,12 +37,12 @@ function nextTimelapseState({
   playing,
   speed,
 }: {
-  action: TimelapseAction;
-  commits: CommitRow[];
-  selectedCommit: string | null;
-  playing: boolean;
-  speed: number;
-}): { playing: boolean; speed: number; selectedCommit: string | null } {
+  readonly action: TimelapseAction;
+  readonly commits: readonly CommitRow[];
+  readonly selectedCommit: string | null;
+  readonly playing: boolean;
+  readonly speed: number;
+}): { readonly playing: boolean; readonly speed: number; readonly selectedCommit: string | null } {
   if (action.kind === "play") {
     return { playing: true, speed, selectedCommit };
   }
@@ -265,7 +250,7 @@ export function useSnapshotGraphExplorer({
   );
 
   const onLayoutSnapshot = useCallback(
-    (nodes: Record<string, { x: number; y: number; pinned: boolean }>) => {
+    (nodes: Readonly<Record<string, LayoutNodePosition>>) => {
       if (saveLayout(nodes)) {
         setInitialLayout(layoutNodesToMap(nodes));
       }

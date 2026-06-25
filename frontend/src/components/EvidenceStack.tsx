@@ -3,7 +3,7 @@ import { Code, Paper, Stack, Text } from "@mantine/core";
 import type { EvidenceRow } from "../api/client";
 
 type Props = {
-  evidence: EvidenceRow[];
+  readonly evidence: readonly EvidenceRow[];
 };
 
 export function EvidenceStack({ evidence }: Props) {

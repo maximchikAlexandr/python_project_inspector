@@ -4,9 +4,9 @@ import { Paper, Text, Title } from "@mantine/core";
 import type { TimeseriesPoint } from "../api/client";
 
 type MetricChartProps = {
-  title: string;
-  points: TimeseriesPoint[];
-  yLabel: string;
+  readonly title: string;
+  readonly points: readonly TimeseriesPoint[];
+  readonly yLabel: string;
 };
 
 export function MetricChart({ title, points, yLabel }: MetricChartProps) {

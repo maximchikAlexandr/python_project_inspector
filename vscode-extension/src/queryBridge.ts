@@ -8,7 +8,21 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 
-import type { RpcErrorBody } from "./contracts";
+import { z } from "zod";
+
+import { BridgeErrorRaised, describeBridgeError, type BridgeError, type RpcProcessError, type RpcProtocolError, type RpcRequestError } from "./errors";
+
+/** Schema for a `ppi rpc` line response (newline-delimited JSON). */
+const RpcResponseLineSchema = z.object({
+  id: z.number().optional(),
+  result: z.unknown().optional(),
+  error: z
+    .object({
+      code: z.string(),
+      message: z.string(),
+    })
+    .optional(),
+});
 
 export interface QueryBridgeOptions {
   readonly cliArgs: string[];
@@ -24,7 +38,7 @@ const RESTART_WINDOW_MS = 30_000;
 
 interface Pending {
   readonly resolve: (value: unknown) => void;
-  readonly reject: (error: Error) => void;
+  readonly reject: (error: BridgeErrorRaised) => void;
   readonly timer: NodeJS.Timeout;
 }
 
@@ -56,7 +70,11 @@ export class QueryBridge {
     }
     this.restartCount++;
     if (this.restartCount > MAX_RESTARTS) {
-      throw new Error(`ppi rpc exited too many times (${MAX_RESTARTS} in ${RESTART_WINDOW_MS}ms). Check the store or CLI.`);
+      throw new BridgeErrorRaised({
+        kind: "rpc_process",
+        reason: "too_many_restarts",
+        message: `ppi rpc exited too many times (${MAX_RESTARTS} in ${RESTART_WINDOW_MS}ms). Check the store or CLI.`,
+      });
     }
     const argv = [...this.options.cliArgs, "--repo", this.options.repo];
     if (this.options.analysisDir?.trim()) {
@@ -75,13 +93,15 @@ export class QueryBridge {
     });
     this.proc.on("error", (err) => {
       this.proc = null;
+      const reason = (err as NodeJS.ErrnoException).code === "ENOENT" ? "spawn_failed" : "exited";
       const message = (err as NodeJS.ErrnoException).code === "ENOENT"
         ? `ppi rpc failed to start: ${err.message}`
         : `ppi rpc process error: ${err.message}`;
-      this.markSessionError(message);
+      const error: RpcProcessError = { kind: "rpc_process", reason, message };
+      this.markSessionError(error);
       for (const [, entry] of this.pending) {
         clearTimeout(entry.timer);
-        entry.reject(new Error(message));
+        entry.reject(new BridgeErrorRaised(error));
       }
       this.pending.clear();
     });
@@ -92,9 +112,14 @@ export class QueryBridge {
       }
       // Servant died mid-session: surface the failure to in-flight requests
       // (FR-022) and let the next request lazily restart the servant (FR-023).
+      const error: RpcProcessError = {
+        kind: "rpc_process",
+        reason: "exited",
+        message: "ppi rpc servant exited unexpectedly" + (this.stderrTail ? ": " + this.stderrTail.slice(-500) : ""),
+      };
       for (const [, entry] of this.pending) {
         clearTimeout(entry.timer);
-        entry.reject(new Error("ppi rpc servant exited unexpectedly" + (this.stderrTail ? ": " + this.stderrTail.slice(-500) : "")));
+        entry.reject(new BridgeErrorRaised(error));
       }
       this.pending.clear();
     });
@@ -114,13 +139,13 @@ export class QueryBridge {
     if (!trimmed) {
       return;
     }
-    let parsed: { id?: number; result?: unknown; error?: RpcErrorBody };
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch {
+    // Validate the line through zod (PPI-034): malformed JSON is ignored.
+    const parsed = RpcResponseLineSchema.safeParse(JSON.parse(trimmed));
+    if (!parsed.success) {
       return;
     }
-    const id = parsed.id;
+    const data = parsed.data;
+    const id = data.id;
     if (id === undefined) {
       return;
     }
@@ -129,22 +154,26 @@ export class QueryBridge {
       // Unmatched/duplicate response is a protocol violation (FR-022): surface
       // it as a session-level error so the panel can show a controlled signal
       // instead of a silent console warning.
-      this.markSessionError(`protocol violation: unmatched rpc response id ${id}`);
+      const error: RpcProtocolError = {
+        kind: "rpc_protocol",
+        message: `protocol violation: unmatched rpc response id ${id}`,
+      };
+      this.markSessionError(error);
       return;
     }
     this.pending.delete(id);
     clearTimeout(entry.timer);
-    if (parsed.error) {
-      entry.reject(new Error(`${parsed.error.code}: ${parsed.error.message}`));
+    if (data.error) {
+      entry.reject(new BridgeErrorRaised({ kind: "rpc_protocol", message: `${data.error.code}: ${data.error.message}` }));
     } else {
-      entry.resolve(parsed.result);
+      entry.resolve(data.result);
     }
   }
 
   /** Mark a non-fatal protocol/lifecycle violation as a session-level error. */
-  private markSessionError(message: string): void {
-    this.sessionError = message;
-    console.warn(`[ppi] ${message}`);
+  private markSessionError(error: BridgeError): void {
+    this.sessionError = describeBridgeError(error);
+    console.warn(`[ppi] ${this.sessionError}`);
   }
 
   /** Last recorded session-level error (protocol violation, spawn failure). */
@@ -155,13 +184,16 @@ export class QueryBridge {
   /** Send a request and await the response. Restarts the servant if it died. */
   request<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     if (this.disposed) {
-      return Promise.reject(new Error("query bridge disposed"));
+      return Promise.reject(new BridgeErrorRaised({ kind: "rpc_request", reason: "disposed", method, message: "query bridge disposed" }));
     }
     if (!this.proc || this.proc.exitCode !== null) {
       try {
         this.start();
       } catch (err) {
-        return Promise.reject(err);
+        if (err instanceof BridgeErrorRaised) {
+          return Promise.reject(err);
+        }
+        return Promise.reject(new BridgeErrorRaised({ kind: "rpc_process", reason: "spawn_failed", message: (err as Error).message }));
       }
     }
     const id = this.nextId++;
@@ -169,13 +201,14 @@ export class QueryBridge {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`ppi rpc request timed out: ${method}`));
+        const error: RpcRequestError = { kind: "rpc_request", reason: "timeout", method, message: `ppi rpc request timed out: ${method}` };
+        reject(new BridgeErrorRaised(error));
       }, REQUEST_TIMEOUT_MS);
       const wrappedResolve = (value: unknown) => {
         clearTimeout(timer);
         resolve(value as T);
       };
-      const wrappedReject = (err: Error) => {
+      const wrappedReject = (err: BridgeErrorRaised) => {
         clearTimeout(timer);
         reject(err);
       };
@@ -184,7 +217,8 @@ export class QueryBridge {
       if (!stdin || !stdin.write(payload)) {
         this.pending.delete(id);
         clearTimeout(timer);
-        reject(new Error("ppi rpc stdin unavailable"));
+        const error: RpcRequestError = { kind: "rpc_request", reason: "stdin_unavailable", method, message: "ppi rpc stdin unavailable" };
+        reject(new BridgeErrorRaised(error));
         return;
       }
     });
@@ -195,9 +229,10 @@ export class QueryBridge {
       return;
     }
     this.disposed = true;
+    const error: RpcRequestError = { kind: "rpc_request", reason: "disposed", method: "", message: "query bridge disposed" };
     for (const entry of this.pending.values()) {
       clearTimeout(entry.timer);
-      entry.reject(new Error("query bridge disposed"));
+      entry.reject(new BridgeErrorRaised(error));
     }
     this.pending.clear();
     if (this.proc) {

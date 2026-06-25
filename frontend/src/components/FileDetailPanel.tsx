@@ -5,7 +5,7 @@ import { formatCodeLines } from "../utils/metricFormat";
 import { DistributionBlock } from "./DistributionBlock";
 
 type Props = {
-  file: FileSnapshot | null;
+  readonly file: FileSnapshot | null;
 };
 
 export function FileDetailPanel({ file }: Props) {

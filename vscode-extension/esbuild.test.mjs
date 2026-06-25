@@ -8,6 +8,8 @@ const entries = {
   "test/unit/analyzeRunner.test.ts": "dist-test/analyzeRunner.test.js",
   "test/unit/settings.test.ts": "dist-test/settings.test.js",
   "test/unit/cancel.test.ts": "dist-test/cancel.test.js",
+  "test/unit/errors.test.ts": "dist-test/errors.test.js",
+  "test/unit/webviewMessages.test.ts": "dist-test/webviewMessages.test.js",
   "test/dashboard.test.ts": "dist-test/dashboard.test.js",
   "test/unit/bridge.test.ts": "dist-test/bridge.test.js",
   "test/webview-render.test.ts": "dist-test/webview-render.test.js",

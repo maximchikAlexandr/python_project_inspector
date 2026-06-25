@@ -7,44 +7,46 @@
  * app is transport-agnostic (Spec FR-018/SC-003).
  */
 
+import { TransportErrorRaised } from "../domain/errors";
+import {
+  decodeRpcResponse,
+  encodeHttpRequest,
+  encodeRpcEnvelope,
+  httpTransportError,
+  matchPendingResponse,
+  raiseTransportError,
+  type RequestEnvelope,
+} from "./apiProtocol";
 
 export interface DataSource {
-  get<T>(method: string, params?: Record<string, unknown>): Promise<T>;
+  get<T>(method: string, params?: Readonly<Record<string, unknown>>): Promise<T>;
   post<T>(method: string, body: unknown): Promise<T>;
 }
 
-/** Build the HTTP URL for a method as a query-string against `/api/<method>`. */
-export function httpPath(method: string, params: Record<string, unknown>): string {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== "") {
-      query.set(key, String(value));
-    }
-  }
-  const suffix = query.toString() ? `?${query.toString()}` : "";
-  return `/api/${method}${suffix}`;
-}
+export { httpPath } from "./apiProtocol";
 
-async function httpFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`${url} -> ${response.status}: ${detail}`);
-  }
-  return response.json() as Promise<T>;
-}
-
-export class HttpDataSource implements DataSource {
-  get<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    return httpFetch<T>(httpPath(method, params));
+class HttpDataSource implements DataSource {
+  get<T>(method: string, params: Readonly<Record<string, unknown>> = {}): Promise<T> {
+    const { url, init } = encodeHttpRequest(method, params);
+    return httpFetch<T>(url, init);
   }
   post<T>(method: string, body: unknown): Promise<T> {
-    return httpFetch<T>(`/api/${method}`, {
+    const { url, init } = encodeHttpRequest(method, {}, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    return httpFetch<T>(url, init);
   }
+}
+
+async function httpFetch<T>(url: string, init: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
+  if (!response.ok) {
+    const detail = await response.text();
+    raiseTransportError(httpTransportError(url, response.status, detail));
+  }
+  return decodeRpcResponse(response) as Promise<T>;
 }
 
 interface VsCodeApi {
@@ -53,64 +55,50 @@ interface VsCodeApi {
   setState<T>(state: T): void;
 }
 
-interface RequestEnvelope {
-  readonly kind: "request";
-  readonly id: number;
-  readonly method: string;
-  readonly params: Record<string, unknown>;
-}
-
-interface ResponseEnvelope {
-  readonly kind: "response";
-  readonly id: number;
-  readonly result?: unknown;
-  readonly error?: { code: string; message: string };
-}
-
 declare global {
   function acquireVsCodeApi(): VsCodeApi;
 }
 
-export class WebviewDataSource implements DataSource {
+class WebviewDataSource implements DataSource {
   // VS Code permits acquireVsCodeApi() exactly once per webview instance; this
   // class must therefore be constructed exactly once, top-level, before any
   // re-mount (webview-main.tsx does this at bootstrap).
   private readonly api: VsCodeApi;
   private nextId = 1;
-  private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: TransportErrorRaised) => void }>();
   private readonly handler: (event: MessageEvent) => void;
 
   constructor() {
     this.api = acquireVsCodeApi();
     this.handler = (event: MessageEvent) => {
-      const message = event.data as ResponseEnvelope;
-      if (!message || message.kind !== "response") {
+      const message = event.data;
+      for (const [id, entry] of this.pending) {
+        const matched = matchPendingResponse(message, id);
+        if (!matched) {
+          continue;
+        }
+        this.pending.delete(id);
+        if (matched.status === "error") {
+          entry.reject(new TransportErrorRaised(matched.error));
+        } else {
+          entry.resolve(matched.result);
+        }
         return;
-      }
-      const entry = this.pending.get(message.id);
-      if (!entry) {
-        return;
-      }
-      this.pending.delete(message.id);
-      if (message.error) {
-        entry.reject(new Error(`${message.error.code}: ${message.error.message}`));
-      } else {
-        entry.resolve(message.result);
       }
     };
     window.addEventListener("message", this.handler);
   }
 
-  private request<T>(method: string, params: Record<string, unknown>): Promise<T> {
+  private request<T>(method: string, params: Readonly<Record<string, unknown>>): Promise<T> {
     const id = this.nextId++;
-    const envelope: RequestEnvelope = { kind: "request", id, method, params };
+    const envelope: RequestEnvelope = encodeRpcEnvelope(id, method, { ...params });
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
       this.api.postMessage(envelope);
     });
   }
 
-  get<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  get<T>(method: string, params: Readonly<Record<string, unknown>> = {}): Promise<T> {
     return this.request<T>(method, params);
   }
 
@@ -118,8 +106,9 @@ export class WebviewDataSource implements DataSource {
   post<T>(method: string, body: unknown): Promise<T> {
     return this.request<T>(method, body as Record<string, unknown>);
   }
-
 }
+
+export { HttpDataSource, WebviewDataSource };
 
 let active: DataSource = new HttpDataSource();
 

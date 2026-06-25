@@ -1,5 +1,6 @@
 import { map } from "remeda";
 
+import { decodeLayout, encodeLayout, type LayoutNodePosition, type LayoutSnapshot } from "../domain/layoutCodec";
 import {
   DEFAULT_ENABLED_EDGE_KINDS,
   DEFAULT_DISPLAY_STATE,
@@ -17,26 +18,23 @@ import {
 } from "./graphSettingsTypes";
 
 export type PersistedSettings = {
-  version: typeof SETTINGS_SCHEMA_VERSION;
-  filter: GraphSettings["filter"];
-  display: GraphSettings["display"];
-  force: GraphSettings["force"];
-  sectionsExpanded: GraphSettings["sectionsExpanded"];
+  readonly version: typeof SETTINGS_SCHEMA_VERSION;
+  readonly filter: GraphSettings["filter"];
+  readonly display: GraphSettings["display"];
+  readonly force: GraphSettings["force"];
+  readonly sectionsExpanded: GraphSettings["sectionsExpanded"];
 };
 
-export type PersistedLayout = {
-  version: typeof LAYOUT_SCHEMA_VERSION;
-  nodes: Record<string, { x: number; y: number; pinned: boolean }>;
-};
+export type PersistedLayout = LayoutSnapshot;
 
 export type ParseSettingsResult = {
-  settings: GraphSettings;
-  saveDisabled: boolean;
+  readonly settings: GraphSettings;
+  readonly saveDisabled: boolean;
 };
 
 export type ParseLayoutResult = {
-  layout: PersistedLayout | null;
-  saveDisabled: boolean;
+  readonly layout: PersistedLayout | null;
+  readonly saveDisabled: boolean;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -63,7 +61,7 @@ function enumValue<T extends string>(value: unknown, fallback: T, allowed: reado
 
 function normalizeBooleanRecord<T extends string>(
   value: unknown,
-  defaults: Record<T, boolean>,
+  defaults: Readonly<Record<T, boolean>>,
 ): Record<T, boolean> {
   const source = isRecord(value) ? value : {};
   return Object.fromEntries(
@@ -150,7 +148,7 @@ function normalizeSections(value: unknown): GraphSettings["sectionsExpanded"] {
   return normalizeBooleanRecord(value, DEFAULT_SECTIONS_EXPANDED);
 }
 
-export function mergeSettingsWithDefaults(partial: Partial<PersistedSettings> | null | undefined): GraphSettings {
+export function mergeSettingsWithDefaults(partial: Readonly<Partial<PersistedSettings>> | null | undefined): GraphSettings {
   if (!partial) {
     return { ...DEFAULT_GRAPH_SETTINGS, sectionsExpanded: { ...DEFAULT_SECTIONS_EXPANDED } };
   }
@@ -214,25 +212,22 @@ export function parseLayout(raw: string | null): ParseLayoutResult {
     return { layout: null, saveDisabled: false };
   }
   try {
-    const parsed = JSON.parse(raw) as Partial<PersistedLayout>;
-    if (parsed.version !== LAYOUT_SCHEMA_VERSION || !parsed.nodes) {
-      return { layout: null, saveDisabled: false };
+    const parsed: unknown = JSON.parse(raw);
+    const decoded = decodeLayout(parsed, LAYOUT_SCHEMA_VERSION);
+    if (decoded.status === "ok") {
+      return { layout: decoded.layout, saveDisabled: false };
     }
-    return {
-      layout: { version: LAYOUT_SCHEMA_VERSION, nodes: parsed.nodes },
-      saveDisabled: false,
-    };
+    return { layout: null, saveDisabled: false };
   } catch {
     return { layout: null, saveDisabled: false };
   }
 }
 
-export function serializeLayout(nodes: PersistedLayout["nodes"]): string {
-  const payload: PersistedLayout = { version: LAYOUT_SCHEMA_VERSION, nodes };
-  return JSON.stringify(payload);
+export function serializeLayout(nodes: Readonly<Record<string, LayoutNodePosition>>): string {
+  return JSON.stringify(encodeLayout(nodes, LAYOUT_SCHEMA_VERSION));
 }
 
-export function trySaveLayout(key: string, nodes: PersistedLayout["nodes"]): { ok: boolean; saveDisabled: boolean } {
+export function trySaveLayout(key: string, nodes: Readonly<Record<string, LayoutNodePosition>>): { ok: boolean; saveDisabled: boolean } {
   try {
     localStorage.setItem(key, serializeLayout(nodes));
     return { ok: true, saveDisabled: false };

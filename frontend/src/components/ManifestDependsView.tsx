@@ -3,7 +3,7 @@ import { Table, Text } from "@mantine/core";
 import type { ModuleSnapshot } from "../api/client";
 
 type Props = {
-  modules: ModuleSnapshot[];
+  readonly modules: readonly ModuleSnapshot[];
 };
 
 export function ManifestDependsView({ modules }: Props) {

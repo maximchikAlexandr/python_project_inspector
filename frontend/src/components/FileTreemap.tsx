@@ -15,11 +15,11 @@ import {
 } from "../transforms/treemapTransforms";
 
 type Props = {
-  files: FileSnapshot[];
-  lineCategories: Set<LineCategoryKey>;
-  selectedPath: string | null;
-  onSelect: (file: FileSnapshot | null) => void;
-  onHover?: (file: FileSnapshot | null) => void;
+  readonly files: readonly FileSnapshot[];
+  readonly lineCategories: ReadonlySet<LineCategoryKey>;
+  readonly selectedPath: string | null;
+  readonly onSelect: (file: FileSnapshot | null) => void;
+  readonly onHover?: (file: FileSnapshot | null) => void;
 };
 
 type TreemapRoot = {

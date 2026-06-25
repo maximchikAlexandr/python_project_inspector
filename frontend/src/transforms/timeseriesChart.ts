@@ -4,8 +4,8 @@ import type { TimeseriesResponse } from "../api/client";
 import { CHART_CATEGORY_COLORS, LINE_CATEGORIES } from "../registry/odooProfile";
 
 export function categoryChartFromTimeseries(categories: TimeseriesResponse): {
-  chartRows: Record<string, number | string>[];
-  series: { name: string; label: string; color: string }[];
+  readonly chartRows: readonly Record<string, number | string>[];
+  readonly series: readonly { name: string; label: string; color: string }[];
 } {
   const orders = pipe(
     categories.series.flatMap((series) => map(series.points, (point) => point.commit_order)),

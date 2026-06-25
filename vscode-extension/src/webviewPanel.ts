@@ -11,6 +11,7 @@ import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import { QueryBridge } from "./queryBridge";
+import { WebviewMessageSchema } from "./webviewMessages";
 
 const WEBVIEW_ID = "ppi.dashboard";
 
@@ -141,11 +142,14 @@ export class DashboardPanel {
   }
 
   private async onMessage(message: unknown): Promise<void> {
-    if (typeof message !== "object" || message === null) {
+    // Validate incoming JSON through zod (PPI-034): a malformed message is
+    // ignored rather than crashing the panel.
+    const parsed = WebviewMessageSchema.safeParse(message);
+    if (!parsed.success) {
       return;
     }
-    const msg = message as { kind?: string; id?: number; method?: string; params?: Record<string, unknown>; command?: string };
-    if (msg.kind === "request" && msg.id !== undefined && msg.method) {
+    const msg = parsed.data;
+    if (msg.kind === "request") {
       const sessionError = this.bridge.sessionErrorMessage;
       if (sessionError) {
         this.panel.webview.postMessage({
@@ -165,7 +169,7 @@ export class DashboardPanel {
           error: { code: "INTERNAL", message: (err as Error).message },
         });
       }
-    } else if (msg.kind === "command" && msg.command) {
+    } else if (msg.kind === "command") {
       // Closed enum from contracts/webview-bridge.md.
       if (ALLOWED_COMMANDS.has(msg.command)) {
         void vscode.commands.executeCommand(msg.command);

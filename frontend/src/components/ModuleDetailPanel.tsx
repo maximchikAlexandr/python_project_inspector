@@ -13,9 +13,9 @@ import { formatCodeLines } from "../utils/metricFormat";
 import { DistributionBlock } from "./DistributionBlock";
 
 type Props = {
-  module: ModuleSnapshot | null;
-  brightnessCriteria: Set<BrightnessCriterion>;
-  couplingStats?: ModuleCouplingStats | null;
+  readonly module: ModuleSnapshot | null;
+  readonly brightnessCriteria: ReadonlySet<BrightnessCriterion>;
+  readonly couplingStats?: ModuleCouplingStats | null;
 };
 
 function brightnessLabel(key: BrightnessCriterion, fallback: string): string {

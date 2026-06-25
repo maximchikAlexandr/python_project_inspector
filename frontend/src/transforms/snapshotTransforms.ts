@@ -3,7 +3,7 @@ import { map, pipe, sortBy, sumBy, unique } from "remeda";
 import type { CommitRow, EdgeRow, GraphEdge, GraphNode, ModuleSnapshot } from "../api/client";
 import { lineCategoryTotal, type LineCategoryKey } from "../registry/odooProfile";
 
-export function graphEdgesToRows(edges: ReadonlyArray<GraphEdge>, commitHash: string): EdgeRow[] {
+export function graphEdgesToRows(edges: ReadonlyArray<GraphEdge>, commitHash: string): readonly EdgeRow[] {
   return map(edges, (edge) => ({
     source: edge.source,
     target: edge.target,
@@ -23,7 +23,7 @@ export function visibleLinesTotal(
   return sumBy(modules, (module) => lineCategoryTotal(module.line_categories, lineCategories));
 }
 
-export function moduleOptionsFromModules(modules: ReadonlyArray<ModuleSnapshot>): string[] {
+export function moduleOptionsFromModules(modules: ReadonlyArray<ModuleSnapshot>): readonly string[] {
   return pipe(
     modules,
     (items) => map(items, (module) => module.module_name),

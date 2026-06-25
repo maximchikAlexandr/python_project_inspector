@@ -3,9 +3,9 @@ import { Paper, Table, Text, Title } from "@mantine/core";
 import type { HotspotItem } from "../api/client";
 
 type HotspotsTableProps = {
-  title: string;
-  items: HotspotItem[];
-  showGrowth: boolean;
+  readonly title: string;
+  readonly items: readonly HotspotItem[];
+  readonly showGrowth: boolean;
 };
 
 export function HotspotsTable({ title, items, showGrowth }: HotspotsTableProps) {

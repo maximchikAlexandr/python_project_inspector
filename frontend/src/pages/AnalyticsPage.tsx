@@ -25,17 +25,17 @@ import {
 import { formatMetricValue } from "../utils/metricFormat";
 
 export function AnalyticsPage() {
-  const [commits, setCommits] = useState<CommitRow[]>([]);
-  const [moduleNames, setModuleNames] = useState<string[]>([]);
+  const [commits, setCommits] = useState<readonly CommitRow[]>([]);
+  const [moduleNames, setModuleNames] = useState<readonly string[]>([]);
   const [moduleName, setModuleName] = useState<string | null>(null);
   const [commitA, setCommitA] = useState<string | null>(null);
   const [commitB, setCommitB] = useState<string | null>(null);
-  const [categoryChart, setCategoryChart] = useState<Record<string, number | string>[]>([]);
-  const [categorySeries, setCategorySeries] = useState<{ name: string; label: string; color: string }[]>([]);
-  const [fileCountSeries, setFileCountSeries] = useState<{ order: number; value: number }[]>([]);
-  const [edgeKindPoints, setEdgeKindPoints] = useState<EdgeKindPoint[]>([]);
-  const [diffChanges, setDiffChanges] = useState<RelationsDiffChange[]>([]);
-  const [complexityDiff, setComplexityDiff] = useState<ComplexityDiffRow[]>([]);
+  const [categoryChart, setCategoryChart] = useState<readonly Record<string, number | string>[]>([]);
+  const [categorySeries, setCategorySeries] = useState<readonly { name: string; label: string; color: string }[]>([]);
+  const [fileCountSeries, setFileCountSeries] = useState<readonly { order: number; value: number }[]>([]);
+  const [edgeKindPoints, setEdgeKindPoints] = useState<readonly EdgeKindPoint[]>([]);
+  const [diffChanges, setDiffChanges] = useState<readonly RelationsDiffChange[]>([]);
+  const [complexityDiff, setComplexityDiff] = useState<readonly ComplexityDiffRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const bootstrapGeneration = useRef(0);
   const moduleGeneration = useRef(0);
@@ -150,7 +150,7 @@ export function AnalyticsPage() {
         <Title order={5} mb="sm">
           Lines by category ({moduleName})
         </Title>
-        <LineChart h={240} data={categoryChart} dataKey="order" series={categorySeries} withLegend withTooltip />
+        <LineChart h={240} data={[...categoryChart]} dataKey="order" series={[...categorySeries]} withLegend withTooltip />
       </Paper>
       <Paper withBorder p="md">
         <Title order={5} mb="sm">
@@ -158,7 +158,7 @@ export function AnalyticsPage() {
         </Title>
         <LineChart
           h={220}
-          data={fileCountSeries}
+          data={[...fileCountSeries]}
           dataKey="order"
           series={[{ name: "value", label: "files", color: "teal.6" }]}
         />
@@ -170,9 +170,9 @@ export function AnalyticsPage() {
         {edgeKindChartData.series.length ? (
           <LineChart
             h={240}
-            data={edgeKindChartData.chartRows}
+            data={[...edgeKindChartData.chartRows]}
             dataKey="order"
-            series={edgeKindChartData.series}
+            series={[...edgeKindChartData.series]}
             withLegend
             withTooltip
           />

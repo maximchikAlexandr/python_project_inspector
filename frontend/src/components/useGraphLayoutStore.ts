@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import type { LayoutNodePosition } from "../domain/layoutCodec";
 import {
   layoutStorageKey,
   tryDeleteLayout,
@@ -28,7 +29,7 @@ export function useGraphLayoutStore(projectOrRepo: string | null, commitHash: st
   }, [key]);
 
   const saveLayout = useCallback(
-    (nodes: PersistedLayout["nodes"]): boolean => {
+    (nodes: Readonly<Record<string, LayoutNodePosition>>): boolean => {
       if (!key) {
         setSaveNotice("Layout save unavailable — no project identifier.");
         return false;

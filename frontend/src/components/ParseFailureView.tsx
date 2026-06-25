@@ -1,15 +1,17 @@
 import { Table, Text } from "@mantine/core";
 
 import type { FailureRow } from "../api/client";
+import { formatParseFailure, parseFailureFromRow, type ParseFailure } from "../domain/domain";
 
 type Props = {
-  failures: FailureRow[];
+  readonly failures: readonly FailureRow[];
 };
 
 export function ParseFailureView({ failures }: Props) {
   if (!failures.length) {
     return <Text c="dimmed">No parse failures at this commit.</Text>;
   }
+  const rows: readonly ParseFailure[] = failures.map(parseFailureFromRow);
   return (
     <Table striped withTableBorder>
       <Table.Thead>
@@ -19,10 +21,10 @@ export function ParseFailureView({ failures }: Props) {
         </Table.Tr>
       </Table.Thead>
       <Table.Tbody>
-        {failures.map((row, index) => (
-          <Table.Tr key={`${row.file_path}-${index}`}>
-            <Table.Td>{row.file_path ?? "—"}</Table.Td>
-            <Table.Td>{row.error_text}</Table.Td>
+        {rows.map((failure, index) => (
+          <Table.Tr key={`${failure.path}-${index}`}>
+            <Table.Td>{failure.path}</Table.Td>
+            <Table.Td>{formatParseFailure(failure)}</Table.Td>
           </Table.Tr>
         ))}
       </Table.Tbody>

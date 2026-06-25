@@ -16,7 +16,7 @@ export type ComplexityDiffRow = {
 export function buildComplexityDiff(
   modulesA: ReadonlyArray<ModuleSnapshot>,
   modulesB: ReadonlyArray<ModuleSnapshot>,
-): ComplexityDiffRow[] {
+): readonly ComplexityDiffRow[] {
   const byNameB = new Map(modulesB.map((module) => [module.module_name, module]));
   return pipe(
     modulesA,
@@ -44,7 +44,7 @@ export function buildComplexityDiff(
 
 export { categoryChartFromTimeseries } from "./timeseriesChart";
 
-export function fileCountSeriesFromTimeseries(fileCount: TimeseriesResponse): { order: number; value: number }[] {
+export function fileCountSeriesFromTimeseries(fileCount: TimeseriesResponse): readonly { order: number; value: number }[] {
   return map(fileCount.series[0]?.points ?? [], (point) => ({
     order: point.commit_order,
     value: Number(point.value ?? 0),
@@ -52,8 +52,8 @@ export function fileCountSeriesFromTimeseries(fileCount: TimeseriesResponse): { 
 }
 
 export function edgeKindChartFromPoints(edgeKindPoints: ReadonlyArray<EdgeKindPoint>): {
-  chartRows: Record<string, number | string>[];
-  series: { name: string; label: string; color: string }[];
+  readonly chartRows: readonly Record<string, number | string>[];
+  readonly series: readonly { name: string; label: string; color: string }[];
 } {
   const orders = pipe(
     edgeKindPoints,
@@ -83,6 +83,6 @@ export function edgeKindChartFromPoints(edgeKindPoints: ReadonlyArray<EdgeKindPo
   return { chartRows, series };
 }
 
-export function moduleSelectOptions(names: ReadonlyArray<string>): { value: string; label: string }[] {
+export function moduleSelectOptions(names: ReadonlyArray<string>): readonly { value: string; label: string }[] {
   return map(names, (name) => ({ value: name, label: name }));
 }

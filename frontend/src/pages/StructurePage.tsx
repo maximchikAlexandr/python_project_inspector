@@ -21,10 +21,10 @@ import {
 } from "../transforms/structureTransforms";
 
 export function StructurePage() {
-  const [commits, setCommits] = useState<CommitRow[]>([]);
-  const [structurePoints, setStructurePoints] = useState<StructurePoint[]>([]);
+  const [commits, setCommits] = useState<readonly CommitRow[]>([]);
+  const [structurePoints, setStructurePoints] = useState<readonly StructurePoint[]>([]);
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
-  const [edges, setEdges] = useState<EdgeRow[]>([]);
+  const [edges, setEdges] = useState<readonly EdgeRow[]>([]);
   const [includeZeroScore, setIncludeZeroScore] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [targetFilter, setTargetFilter] = useState<string | null>(null);
@@ -123,7 +123,7 @@ export function StructurePage() {
         ) : (
           <LineChart
             h={280}
-            data={chartData}
+            data={[...chartData]}
             dataKey="order"
             series={[
               { name: "edge_count", label: "Edges", color: "teal.6" },

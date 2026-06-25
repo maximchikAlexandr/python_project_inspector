@@ -13,26 +13,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { GraphEdge, GraphNode } from "../api/client";
 import {
-  computeNodeBrightnessMap,
-  colorForComplexityRatio,
   lineCategoryTotal,
-  strokeForComplexityRatio,
   textColorForComplexityRatio,
   type BrightnessCriterion,
   type LineCategoryKey,
 } from "../registry/odooProfile";
 import { formatCodeLines } from "../utils/metricFormat";
 import type { GraphDisplayState, GraphEdgeKind, GraphForceState } from "./graphSettingsTypes";
+import type { LayoutCommandKind, ZoomCommandKind } from "./GraphSettingsPanel";
+import type { LayoutNodePosition } from "../domain/layoutCodec";
+import { buildModuleGraphViewModel } from "./graphViewModel";
+import type { GraphEdgeViewModel } from "./graphSelectors";
+import { buildEdgeTooltip, buildNodeTooltip } from "./tooltipViewModel";
 import {
-  buildGraphEdgeViews,
-  computeNodeDisplay,
-  type GraphEdgeViewModel,
-  maxLinkThicknessMetric,
-  maxNodeMetric,
-} from "./graphSelectors";
-import {
-  buildEdgeTooltip,
-  buildNodeTooltip,
   clampZoom,
   computeTargetViewBox,
   edgeCurvePath,
@@ -66,23 +59,23 @@ type LayoutMap = Map<string, { x: number; y: number; pinned: boolean }>;
 type FadeState = { enabled: boolean; highlight: Set<string>; edgeKeys: Set<string> };
 
 type ModuleGraphProps = {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  display: GraphDisplayState;
-  force: GraphForceState;
-  enabledEdgeKinds: Record<GraphEdgeKind, boolean>;
-  brightnessCriteria: Set<BrightnessCriterion>;
-  lineCategories: Set<LineCategoryKey>;
-  selectedModule: string | null;
-  onSelectModule: (name: string | null) => void;
-  pinned: Record<string, boolean>;
-  onTogglePin: (moduleName: string) => void;
-  layoutCommand: { kind: "restart" | "reset" | "save" | "load" | "unpinAll"; nonce: number } | null;
-  onLayoutSnapshot?: (nodes: Record<string, { x: number; y: number; pinned: boolean }>) => void;
-  zoomCommand: { kind: "in" | "out" | "fit"; nonce: number } | null;
-  loading?: boolean;
-  emptyNotice?: "no_kinds" | "below_threshold" | "no_neighbors" | null;
-  initialLayout?: LayoutMap;
+  readonly nodes: readonly GraphNode[];
+  readonly edges: readonly GraphEdge[];
+  readonly display: GraphDisplayState;
+  readonly force: GraphForceState;
+  readonly enabledEdgeKinds: Readonly<Record<GraphEdgeKind, boolean>>;
+  readonly brightnessCriteria: ReadonlySet<BrightnessCriterion>;
+  readonly lineCategories: ReadonlySet<LineCategoryKey>;
+  readonly selectedModule: string | null;
+  readonly onSelectModule: (name: string | null) => void;
+  readonly pinned: Readonly<Record<string, boolean>>;
+  readonly onTogglePin: (moduleName: string) => void;
+  readonly layoutCommand: { readonly kind: LayoutCommandKind; readonly nonce: number } | null;
+  readonly onLayoutSnapshot?: (nodes: Readonly<Record<string, LayoutNodePosition>>) => void;
+  readonly zoomCommand: { readonly kind: ZoomCommandKind; readonly nonce: number } | null;
+  readonly loading?: boolean;
+  readonly emptyNotice?: "no_kinds" | "below_threshold" | "no_neighbors" | null;
+  readonly initialLayout?: LayoutMap;
 };
 
 const CAMERA_LERP = 0.18;
@@ -165,12 +158,12 @@ function buildSimNodes({
   radii,
   seed,
 }: {
-  nodes: GraphNode[];
+  nodes: readonly GraphNode[];
   previous: Map<string, SimNode>;
   cache: PositionCache;
   initialLayout?: LayoutMap;
-  pinned: Record<string, boolean>;
-  radii: Map<string, number>;
+  pinned: Readonly<Record<string, boolean>>;
+  radii: ReadonlyMap<string, number>;
   seed: () => { x: number; y: number; vx: number; vy: number };
 }): SimNode[] {
   return nodes.map((node) => {
@@ -227,7 +220,7 @@ export function ModuleGraph({
   const labelFadeThresholdRef = useRef(display.labelFadeThreshold);
   labelFadeThresholdRef.current = display.labelFadeThreshold;
   const viewBoxRef = useRef<ViewBox>({ x: 0, y: 0, w: GRAPH_WIDTH, h: GRAPH_HEIGHT });
-  const radiusByIdRef = useRef<Map<string, number>>(new Map());
+  const radiusByIdRef = useRef<ReadonlyMap<string, number>>(new Map());
   const zoomScaleRef = useRef(1);
   const manualPanRef = useRef({ x: 0, y: 0 });
   const fadeRef = useRef({ enabled: false, highlight: new Set<string>(), edgeKeys: new Set<string>() });
@@ -245,84 +238,18 @@ export function ModuleGraph({
     null,
   );
 
-  const brightnessById = useMemo(
-    () => computeNodeBrightnessMap(nodes, brightnessCriteria),
-    [brightnessCriteria, nodes],
+  const vm = useMemo(
+    () => buildModuleGraphViewModel(nodes, edges, display, enabledEdgeKinds, brightnessCriteria, lineCategories, selectedModule, hoveredId, display.labelFadeThreshold > 0 ? zoomScale : 1),
+    [nodes, edges, display, enabledEdgeKinds, brightnessCriteria, lineCategories, selectedModule, hoveredId, zoomScale],
   );
-
-  const maxMetric = useMemo(
-    () => maxNodeMetric(nodes, display.nodeSizeMetric, lineCategories),
-    [display.nodeSizeMetric, lineCategories, nodes],
-  );
-
-  const thicknessMax = useMemo(
-    () => maxLinkThicknessMetric(edges, display, enabledEdgeKinds),
-    [display, edges, enabledEdgeKinds],
-  );
-
-  const nodeRadiiById = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const node of nodes) {
-      const { radius } = computeNodeDisplay(node, display, {
-        maxMetric,
-        brightnessRatio: 0,
-        selected: false,
-        hovered: false,
-        lineCategories,
-        fill: "",
-        stroke: "",
-        zoomScale: 1,
-      });
-      map.set(node.module_name, radius);
-    }
-    return map;
-  }, [display, lineCategories, maxMetric, nodes]);
-
-  const edgeViews = useMemo(
-    () => buildGraphEdgeViews(edges, display, enabledEdgeKinds, thicknessMax),
-    [display, edges, enabledEdgeKinds, thicknessMax],
-  );
-
-  const labelZoom = display.labelFadeThreshold > 0 ? zoomScale : 1;
-
-  const nodeDisplayById = useMemo(() => {
-    const map = new Map<string, ReturnType<typeof computeNodeDisplay>>();
-    for (const node of nodes) {
-      const ratio = brightnessCriteria.size ? (brightnessById.get(node.module_name) ?? 0) : 0;
-      map.set(
-        node.module_name,
-        computeNodeDisplay(node, display, {
-          maxMetric,
-          brightnessRatio: ratio,
-          selected: selectedModule === node.module_name,
-          hovered: hoveredId === node.module_name,
-          lineCategories,
-          fill: colorForComplexityRatio(ratio),
-          stroke: strokeForComplexityRatio(ratio),
-          zoomScale: labelZoom,
-        }),
-      );
-    }
-    return map;
-  }, [
-    brightnessById,
-    brightnessCriteria.size,
-    display,
-    hoveredId,
-    labelZoom,
-    lineCategories,
-    maxMetric,
-    nodes,
-    selectedModule,
-  ]);
 
   useEffect(() => {
-    radiusByIdRef.current = nodeRadiiById;
-  }, [nodeRadiiById]);
+    radiusByIdRef.current = vm.nodeRadiiById;
+  }, [vm.nodeRadiiById]);
 
   const simLinks: SimLink[] = useMemo(
     () =>
-      edgeViews.map((view) => ({
+      vm.edgeViews.map((view) => ({
         source: view.sourceId,
         target: view.targetId,
         edge: view.edge,
@@ -332,7 +259,7 @@ export function ModuleGraph({
         offset: view.offset,
         display: view.display,
       })),
-    [edgeViews],
+    [vm.edgeViews],
   );
 
   useEffect(() => {
@@ -503,7 +430,7 @@ export function ModuleGraph({
       .alpha(0.15)
       .restart();
     syncGraphDom(layoutNodes);
-  }, [force.collidePadding, nodeRadiiById, pinned, syncGraphDom]);
+  }, [force.collidePadding, vm.nodeRadiiById, pinned, syncGraphDom]);
 
   useEffect(() => {
     const simulation = simulationRef.current;
@@ -825,9 +752,9 @@ export function ModuleGraph({
           })}
           {nodes.map((node) => {
             const id = node.module_name;
-            const model = nodeDisplayById.get(id)!;
+            const model = vm.nodeDisplayById.get(id)!;
             const visible = lineCategoryTotal(node.line_categories, lineCategories);
-            const complexityRatio = brightnessCriteria.size ? (brightnessById.get(id) ?? 0) : 0;
+            const complexityRatio = brightnessCriteria.size ? (vm.brightnessById.get(id) ?? 0) : 0;
             const isSelected = selectedModule === id;
             const isPinned = !!pinned[id];
             return (

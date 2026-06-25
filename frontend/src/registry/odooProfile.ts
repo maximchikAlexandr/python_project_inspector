@@ -1,5 +1,7 @@
 import { filter, map, pipe, sumBy } from "remeda";
 
+import type { EdgeKind } from "../domain/domain";
+
 export type LineCategoryKey =
   | "python_lines"
   | "js_lines"
@@ -59,7 +61,7 @@ export const GRAPH_BREAKDOWN_KINDS = [
 
 export const GRAPH_EDGE_KIND_KEYS: readonly GraphEdgeKind[] = GRAPH_BREAKDOWN_KINDS.map(({ key }) => key);
 
-export function graphBreakdownKindMeta(edges: ReadonlyArray<{ breakdown: Record<string, number> }>): readonly typeof GRAPH_BREAKDOWN_KINDS[number][] {
+export function graphBreakdownKindMeta(edges: ReadonlyArray<{ readonly breakdown: Readonly<Record<string, number>> }>): readonly typeof GRAPH_BREAKDOWN_KINDS[number][] {
   const present = new Set<GraphBreakdownKind>();
   for (const edge of edges) {
     for (const { key } of GRAPH_BREAKDOWN_KINDS) {
@@ -71,7 +73,7 @@ export function graphBreakdownKindMeta(edges: ReadonlyArray<{ breakdown: Record<
   return filter(GRAPH_BREAKDOWN_KINDS, ({ key }) => present.has(key));
 }
 
-export const EDGE_KIND_LABELS: Record<string, string> = {
+export const EDGE_KIND_LABELS: Readonly<Record<EdgeKind, string>> = {
   python__inherit: "Model extension (_inherit)",
   python_method_call: "Method call",
   python_private_method_call: "Private method call",
@@ -83,6 +85,7 @@ export const EDGE_KIND_LABELS: Record<string, string> = {
   python_api_onchange: "@api.onchange",
   python_api_constrains: "@api.constrains",
   python_env_model: "self.env['model'] access",
+  python_field_property_access: "Field/property access",
   security_ir_rule_model_ref: "ir.rule model reference",
   security_ir_rule_ref: "ir.rule reference",
   security_xml_ref: "Security XML ref",
@@ -90,37 +93,37 @@ export const EDGE_KIND_LABELS: Record<string, string> = {
   xml_inherit_id: "XML inherit_id",
   xml_ref: "XML ref",
   xml_percent_ref: "XML %(module.xml_id)d ref",
-  python_field_property_access: "Field/property access",
   manifest_depends: "Manifest depends",
 };
 
-const NON_SCORING_EDGE_KINDS = new Set([
+const NON_SCORING_EDGE_KINDS = new Set<EdgeKind>([
   "manifest_depends",
   "security_ir_rule_ref",
   "security_xml_ref",
   "security_csv_ref",
 ]);
 
+/** Whether a raw string is a known `EdgeKind` that counts towards the score. */
 export function isScoringEdgeKind(kind: string): boolean {
-  return kind in EDGE_KIND_LABELS && !NON_SCORING_EDGE_KINDS.has(kind);
+  return kind in EDGE_KIND_LABELS && !NON_SCORING_EDGE_KINDS.has(kind as EdgeKind);
 }
 
 export function edgeKindLabel(kind: string): string {
-  return EDGE_KIND_LABELS[kind] ?? kind;
+  return (EDGE_KIND_LABELS as Readonly<Record<string, string>>)[kind] ?? kind;
 }
 
 export type BrightnessNode = {
-  module_name: string;
-  cyclomatic_median: number;
-  cognitive_median: number;
-  jones_median: number;
-  method_count: number;
-  python_file_count: number;
-  line_categories: Record<string, number>;
+  readonly module_name: string;
+  readonly cyclomatic_median: number;
+  readonly cognitive_median: number;
+  readonly jones_median: number;
+  readonly method_count: number;
+  readonly python_file_count: number;
+  readonly line_categories: Readonly<Record<string, number>>;
 };
 
 export function lineCategoryTotal(
-  categories: Record<string, number>,
+  categories: Readonly<Record<string, number>>,
   active: ReadonlySet<LineCategoryKey>,
 ): number {
   if (!active.size) {
@@ -212,7 +215,7 @@ export type ModuleCouplingStats = {
 
 export function moduleCouplingStats(
   moduleName: string,
-  edges: ReadonlyArray<{ source: string; target: string; kinds?: Record<string, number> }>,
+  edges: ReadonlyArray<{ readonly source: string; readonly target: string; readonly kinds?: Readonly<Record<string, number>> }>,
 ): ModuleCouplingStats {
   const outgoing = filter(edges, (edge) => edge.source === moduleName);
   const incoming = filter(edges, (edge) => edge.target === moduleName);

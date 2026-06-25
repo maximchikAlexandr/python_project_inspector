@@ -14,46 +14,46 @@ import type { GraphDisplayState, GraphFilterState } from "./graphSettingsTypes";
 import { edgeStrokeWidth } from "./graphViewPure";
 
 export type GraphStats = {
-  totalNodes: number;
-  visibleNodes: number;
-  totalEdges: number;
-  visibleEdges: number;
-  hiddenByFilters: number;
-  selectedModule: string | null;
-  focusState: { enabled: boolean; depth: number; direction: GraphFilterState["directionMode"] };
+  readonly totalNodes: number;
+  readonly visibleNodes: number;
+  readonly totalEdges: number;
+  readonly visibleEdges: number;
+  readonly hiddenByFilters: number;
+  readonly selectedModule: string | null;
+  readonly focusState: { readonly enabled: boolean; readonly depth: number; readonly direction: GraphFilterState["directionMode"] };
 };
 
 export type GraphFilterResult = {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  stats: GraphStats;
-  noKindsSelected: boolean;
-  allEdgesBelowThreshold: boolean;
-  noNeighborsMatch: boolean;
+  readonly nodes: ReadonlyArray<GraphNode>;
+  readonly edges: ReadonlyArray<GraphEdge>;
+  readonly stats: GraphStats;
+  readonly noKindsSelected: boolean;
+  readonly allEdgesBelowThreshold: boolean;
+  readonly noNeighborsMatch: boolean;
 };
 
 export type NodeDisplayModel = {
-  radius: number;
-  fill: string;
-  stroke: string;
-  label: string | null;
-  badges: { in: number; out: number; files: number; methods: number } | null;
+  readonly radius: number;
+  readonly fill: string;
+  readonly stroke: string;
+  readonly label: string | null;
+  readonly badges: { readonly in: number; readonly out: number; readonly files: number; readonly methods: number } | null;
 };
 
-export type EdgeDisplayModel = { thickness: number; visible: boolean; label: string | null };
+export type EdgeDisplayModel = { readonly thickness: number; readonly visible: boolean; readonly label: string | null };
 
 export type GraphEdgeViewModel = {
-  key: string;
-  sourceId: string;
-  targetId: string;
-  offset: number;
-  edge: GraphEdge;
-  display: EdgeDisplayModel;
+  readonly key: string;
+  readonly sourceId: string;
+  readonly targetId: string;
+  readonly offset: number;
+  readonly edge: GraphEdge;
+  readonly display: EdgeDisplayModel;
 };
 
 export function computeEdgeVisibleScore(
   edge: GraphEdge,
-  enabledEdgeKinds: Record<GraphEdgeKind, boolean>,
+  enabledEdgeKinds: Readonly<Record<GraphEdgeKind, boolean>>,
 ): number {
   return sumBy(
     GRAPH_EDGE_KIND_KEYS.filter((kind) => enabledEdgeKinds[kind]),
@@ -62,12 +62,12 @@ export function computeEdgeVisibleScore(
 }
 
 export function computeLocalGraph(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
+  nodes: ReadonlyArray<GraphNode>,
+  edges: ReadonlyArray<GraphEdge>,
   focusModule: string | null,
   depth: number,
   directionMode: GraphFilterState["directionMode"],
-): { nodes: GraphNode[]; edges: GraphEdge[]; noNeighborsMatch: boolean } {
+): { readonly nodes: ReadonlyArray<GraphNode>; readonly edges: ReadonlyArray<GraphEdge>; readonly noNeighborsMatch: boolean } {
   if (!focusModule) {
     return { nodes, edges, noNeighborsMatch: false };
   }
@@ -114,7 +114,7 @@ export function computeLocalGraph(
 }
 
 function filterEdgesByScore(
-  edges: GraphEdge[],
+  edges: ReadonlyArray<GraphEdge>,
   filterState: GraphFilterState,
 ): GraphEdge[] {
   return filter(edges, (edge) => {
@@ -130,8 +130,8 @@ function filterEdgesByScore(
 }
 
 export function applyGraphFilters(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
+  nodes: ReadonlyArray<GraphNode>,
+  edges: ReadonlyArray<GraphEdge>,
   filterState: GraphFilterState,
   selectedModule: string | null = null,
 ): GraphFilterResult {
@@ -163,8 +163,8 @@ export function applyGraphFilters(
   }
   const filteredEdges = filterEdgesByScore(edges, filterState);
   const allBelowThreshold = filteredEdges.length === 0 && edges.length > 0;
-  let visibleNodes = nodes;
-  let visibleEdges = filteredEdges;
+  let visibleNodes: ReadonlyArray<GraphNode> = nodes;
+  let visibleEdges: ReadonlyArray<GraphEdge> = filteredEdges;
   let noNeighborsMatch = false;
   if (filterState.focusEnabled && filterState.focusModule) {
     const local = computeLocalGraph(
@@ -204,7 +204,7 @@ export function applyGraphFilters(
 function nodeMetricValue(
   node: GraphNode,
   metric: GraphDisplayState["nodeSizeMetric"],
-  lineCategories: Set<LineCategoryKey>,
+  lineCategories: ReadonlySet<LineCategoryKey>,
 ): number {
   if (metric === "visible_lines") {
     return lineCategoryTotal(node.line_categories, lineCategories);
@@ -225,9 +225,9 @@ function nodeMetricValue(
 }
 
 export function maxNodeMetric(
-  nodes: GraphNode[],
+  nodes: ReadonlyArray<GraphNode>,
   metric: GraphDisplayState["nodeSizeMetric"],
-  lineCategories: Set<LineCategoryKey>,
+  lineCategories: ReadonlySet<LineCategoryKey>,
 ): number {
   if (!nodes.length) {
     return 1;
@@ -239,14 +239,14 @@ export function computeNodeDisplay(
   node: GraphNode,
   display: GraphDisplayState,
   context: {
-    maxMetric: number;
-    brightnessRatio: number;
-    selected: boolean;
-    hovered: boolean;
-    lineCategories: Set<LineCategoryKey>;
-    fill: string;
-    stroke: string;
-    zoomScale: number;
+    readonly maxMetric: number;
+    readonly brightnessRatio: number;
+    readonly selected: boolean;
+    readonly hovered: boolean;
+    readonly lineCategories: ReadonlySet<LineCategoryKey>;
+    readonly fill: string;
+    readonly stroke: string;
+    readonly zoomScale: number;
   },
 ): NodeDisplayModel {
   const metricValue = nodeMetricValue(node, display.nodeSizeMetric, context.lineCategories);
@@ -306,9 +306,9 @@ function edgeThicknessMetric(
 }
 
 export function maxLinkThicknessMetric(
-  edges: GraphEdge[],
+  edges: ReadonlyArray<GraphEdge>,
   display: GraphDisplayState,
-  enabledEdgeKinds: Record<GraphEdgeKind, boolean>,
+  enabledEdgeKinds: Readonly<Record<GraphEdgeKind, boolean>>,
 ): number {
   if (!edges.length) {
     return 1;
@@ -324,7 +324,7 @@ export function maxLinkThicknessMetric(
 export function computeEdgeDisplay(
   edge: GraphEdge,
   display: GraphDisplayState,
-  context: { visibleScore: number; maxThicknessMetric: number },
+  context: { readonly visibleScore: number; readonly maxThicknessMetric: number },
 ): EdgeDisplayModel {
   const metric = edgeThicknessMetric(edge, display, context.visibleScore);
   const thickness =
@@ -344,9 +344,9 @@ export function computeEdgeDisplay(
 }
 
 export function buildGraphEdgeViews(
-  edges: GraphEdge[],
+  edges: ReadonlyArray<GraphEdge>,
   display: GraphDisplayState,
-  enabledEdgeKinds: Record<GraphEdgeKind, boolean>,
+  enabledEdgeKinds: Readonly<Record<GraphEdgeKind, boolean>>,
   maxThicknessMetric: number,
 ): GraphEdgeViewModel[] {
   const edgeKeys = new Set(edges.map((edge) => `${edge.source}|${edge.target}`));
@@ -367,7 +367,7 @@ export function buildGraphEdgeViews(
   });
 }
 
-export function maxEffectiveEdgeScore(edges: GraphEdge[], enabledKinds: Record<GraphEdgeKind, boolean>): number {
+export function maxEffectiveEdgeScore(edges: ReadonlyArray<GraphEdge>, enabledKinds: Readonly<Record<GraphEdgeKind, boolean>>): number {
   if (!edges.length) {
     return 0;
   }

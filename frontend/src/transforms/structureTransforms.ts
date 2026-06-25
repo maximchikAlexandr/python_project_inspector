@@ -3,7 +3,7 @@ import { filter, map, pipe, sortBy, unique } from "remeda";
 import type { EdgeRow, StructurePoint } from "../api/client";
 import { edgeKindLabel } from "../registry/odooProfile";
 
-export function structureChartRows(points: ReadonlyArray<StructurePoint>): {
+export function structureChartRows(points: ReadonlyArray<StructurePoint>): readonly {
   order: number;
   edge_count: number;
   total_score: number;
@@ -15,7 +15,7 @@ export function structureChartRows(points: ReadonlyArray<StructurePoint>): {
   }));
 }
 
-export function moduleSelectOptions(edges: ReadonlyArray<EdgeRow>): { value: string; label: string }[] {
+export function moduleSelectOptions(edges: ReadonlyArray<EdgeRow>): readonly { value: string; label: string }[] {
   return pipe(
     edges,
     (items) => items.flatMap((edge) => [edge.source, edge.target]),
@@ -25,7 +25,7 @@ export function moduleSelectOptions(edges: ReadonlyArray<EdgeRow>): { value: str
   );
 }
 
-export function edgeKindSelectOptions(edges: ReadonlyArray<EdgeRow>): { value: string; label: string }[] {
+export function edgeKindSelectOptions(edges: ReadonlyArray<EdgeRow>): readonly { value: string; label: string }[] {
   const kinds = new Set<string>();
   edges.forEach((edge) => {
     Object.entries(edge.kinds ?? {}).forEach(([kind, count]) => {
@@ -44,12 +44,12 @@ export function edgeKindSelectOptions(edges: ReadonlyArray<EdgeRow>): { value: s
 export function filterStructureEdges(
   edges: ReadonlyArray<EdgeRow>,
   filters: {
-    sourceFilter: string | null;
-    targetFilter: string | null;
-    kindFilter: string | null;
-    minScore: number;
+    readonly sourceFilter: string | null;
+    readonly targetFilter: string | null;
+    readonly kindFilter: string | null;
+    readonly minScore: number;
   },
-): EdgeRow[] {
+): readonly EdgeRow[] {
   return filter(edges, (edge) => {
     if (filters.sourceFilter && edge.source !== filters.sourceFilter) {
       return false;

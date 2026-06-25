@@ -15,6 +15,7 @@ import { resolveCliArgs } from "./cliArgs";
 import { verifyCli } from "./env";
 import { readSettings } from "./settings";
 import { StatusController, errorWithActions, infoWithAction } from "./status";
+import { ProgressEventSchema } from "./webviewMessages";
 
 let output: vscode.OutputChannel;
 
@@ -63,7 +64,8 @@ async function tryVerifyCli(cliArgs: string[]): Promise<boolean> {
         void vscode.commands.executeCommand("workbench.action.openSettings", "ppi.pythonExecutable");
       }
     } else {
-      void vscode.window.showErrorMessage(`PPI: ${(err as Error).message}`);
+      const message = err instanceof Error ? err.message : String(err);
+      void vscode.window.showErrorMessage(`PPI: ${message}`);
     }
     return false;
   }
@@ -158,7 +160,10 @@ function onProgress(event: ProgressEvent, folderName: string, folderKey: string)
   if (panel) {
     const mappedEvent = PROGRESS_EVENT_NAME[event.type];
     if (mappedEvent) {
-      panel.postEvent(mappedEvent, event as unknown as Record<string, unknown>);
+      const parsed = ProgressEventSchema.safeParse(event);
+      if (parsed.success) {
+        panel.postEvent(mappedEvent, Object.assign({}, parsed.data));
+      }
     }
   }
 }

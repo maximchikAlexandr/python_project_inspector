@@ -52,13 +52,13 @@ export function DashboardPage() {
   const [agg, setAgg] = useState("mean");
   const [activeTab, setActiveTab] = useState<DashboardTab>("complexity");
   const [selectedName, setSelectedName] = useState<string | null>(null);
-  const [names, setNames] = useState<string[]>([]);
-  const [complexityPoints, setComplexityPoints] = useState<TimeseriesPoint[]>([]);
-  const [sizePoints, setSizePoints] = useState<TimeseriesPoint[]>([]);
-  const [categoryChart, setCategoryChart] = useState<Record<string, number | string>[]>([]);
-  const [categorySeries, setCategorySeries] = useState<{ name: string; label: string; color: string }[]>([]);
-  const [valueHotspots, setValueHotspots] = useState<HotspotItem[]>([]);
-  const [growthHotspots, setGrowthHotspots] = useState<HotspotItem[]>([]);
+  const [names, setNames] = useState<readonly string[]>([]);
+  const [complexityPoints, setComplexityPoints] = useState<readonly TimeseriesPoint[]>([]);
+  const [sizePoints, setSizePoints] = useState<readonly TimeseriesPoint[]>([]);
+  const [categoryChart, setCategoryChart] = useState<readonly Record<string, number | string>[]>([]);
+  const [categorySeries, setCategorySeries] = useState<readonly { name: string; label: string; color: string }[]>([]);
+  const [valueHotspots, setValueHotspots] = useState<readonly HotspotItem[]>([]);
+  const [growthHotspots, setGrowthHotspots] = useState<readonly HotspotItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const hotspotsGeneration = useRef(0);
   const seriesGeneration = useRef(0);
@@ -245,7 +245,7 @@ export function DashboardPage() {
         {level === "module" ? (
           <Tabs.Panel value="categories" pt="md">
             {categoryChart.length ? (
-              <LineChart h={280} data={categoryChart} dataKey="order" series={categorySeries} withLegend withTooltip />
+              <LineChart h={280} data={[...categoryChart]} dataKey="order" series={[...categorySeries]} withLegend withTooltip />
             ) : (
               <Text c="dimmed">{t("dashboard.empty.categories", "Select a module to load line category history.")}</Text>
             )}

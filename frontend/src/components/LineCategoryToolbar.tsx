@@ -4,8 +4,8 @@ import { t } from "../i18n";
 import { LINE_CATEGORIES, type LineCategoryKey } from "../registry/odooProfile";
 
 type Props = {
-  active: Set<LineCategoryKey>;
-  onChange: (next: Set<LineCategoryKey>) => void;
+  readonly active: ReadonlySet<LineCategoryKey>;
+  readonly onChange: (next: Set<LineCategoryKey>) => void;
 };
 
 function lineCategoryLabel(key: LineCategoryKey, fallback: string): string {

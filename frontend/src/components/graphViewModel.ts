@@ -1,0 +1,87 @@
+import type { GraphEdge, GraphNode } from "../api/client";
+import {
+  colorForComplexityRatio,
+  computeNodeBrightnessMap,
+  strokeForComplexityRatio,
+  type BrightnessCriterion,
+  type GraphEdgeKind,
+  type LineCategoryKey,
+} from "../registry/odooProfile";
+import {
+  buildGraphEdgeViews,
+  computeNodeDisplay,
+  maxLinkThicknessMetric,
+  maxNodeMetric,
+  type GraphEdgeViewModel,
+  type NodeDisplayModel,
+} from "./graphSelectors";
+import type { GraphDisplayState } from "./graphSettingsTypes";
+
+export type ModuleGraphViewModel = {
+  readonly brightnessById: ReadonlyMap<string, number>;
+  readonly maxMetric: number;
+  readonly thicknessMax: number;
+  readonly nodeRadiiById: ReadonlyMap<string, number>;
+  readonly edgeViews: readonly GraphEdgeViewModel[];
+  readonly nodeDisplayById: ReadonlyMap<string, NodeDisplayModel>;
+};
+
+export function buildModuleGraphViewModel(
+  nodes: readonly GraphNode[],
+  edges: readonly GraphEdge[],
+  display: GraphDisplayState,
+  enabledEdgeKinds: Readonly<Record<GraphEdgeKind, boolean>>,
+  brightnessCriteria: ReadonlySet<BrightnessCriterion>,
+  lineCategories: ReadonlySet<LineCategoryKey>,
+  selectedModule: string | null,
+  hoveredId: string | null,
+  labelZoom: number,
+): ModuleGraphViewModel {
+  const brightnessById = computeNodeBrightnessMap(nodes, brightnessCriteria);
+  const maxMetric = maxNodeMetric(nodes, display.nodeSizeMetric, lineCategories);
+  const thicknessMax = maxLinkThicknessMetric(edges, display, enabledEdgeKinds);
+
+  const edgeViews = buildGraphEdgeViews(edges, display, enabledEdgeKinds, thicknessMax);
+
+  const nodeRadiiById = new Map<string, number>();
+  const nodeDisplayById = new Map<string, NodeDisplayModel>();
+  for (const node of nodes) {
+    const id = node.module_name;
+    const ratio = brightnessCriteria.size ? (brightnessById.get(id) ?? 0) : 0;
+    nodeRadiiById.set(
+      id,
+      computeNodeDisplay(node, display, {
+        maxMetric,
+        brightnessRatio: 0,
+        selected: false,
+        hovered: false,
+        lineCategories,
+        fill: "",
+        stroke: "",
+        zoomScale: 1,
+      }).radius,
+    );
+    nodeDisplayById.set(
+      id,
+      computeNodeDisplay(node, display, {
+        maxMetric,
+        brightnessRatio: ratio,
+        selected: selectedModule === id,
+        hovered: hoveredId === id,
+        lineCategories,
+        fill: colorForComplexityRatio(ratio),
+        stroke: strokeForComplexityRatio(ratio),
+        zoomScale: labelZoom,
+      }),
+    );
+  }
+
+  return {
+    brightnessById,
+    maxMetric,
+    thicknessMax,
+    nodeRadiiById,
+    edgeViews,
+    nodeDisplayById,
+  };
+}

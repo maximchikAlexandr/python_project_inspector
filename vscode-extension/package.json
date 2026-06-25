@@ -108,7 +108,7 @@
     "package": "npm run vscode:prepublish && vsce package",
     "publish": "npm run vscode:prepublish && vsce publish",
     "test": "npm run test:unit",
-    "test:unit": "node esbuild.test.mjs && node --test dist-test/analyzeRunner.test.js dist-test/settings.test.js dist-test/cancel.test.js dist-test/dashboard.test.js dist-test/bridge.test.js",
+    "test:unit": "node esbuild.test.mjs && node --test dist-test/analyzeRunner.test.js dist-test/settings.test.js dist-test/cancel.test.js dist-test/errors.test.js dist-test/webviewMessages.test.js dist-test/dashboard.test.js dist-test/bridge.test.js",
     "typecheck": "tsc --noEmit",
     "test:integration": "node ./test/runTest.js",
     "test:webview": "npm run build:webview && node esbuild.test.mjs && node --test dist-test/webview-render.test.js"
@@ -122,5 +122,8 @@
     "esbuild": "^0.23.0",
     "puppeteer-core": "^23.11.1",
     "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
   }
 }

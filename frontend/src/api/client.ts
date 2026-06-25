@@ -230,17 +230,32 @@ export type EdgeKindPoint = {
 };
 
 import { getDataSource } from "./dataSource";
+import { DecodeErrorRaised } from "../domain/errors";
+import * as S from "./schemas";
 
 function ds() {
   return getDataSource();
 }
 
+/** Parse unknown JSON through a zod schema; raise a typed `DecodeError` on failure (PPI-030/034). */
+function validate<T>(schema: { parse(data: unknown): T }, data: unknown, label: string): T {
+  const result = (schema as unknown as { safeParse(d: unknown): { success: boolean; data?: T; error?: { message: string } } }).safeParse(data);
+  if (!result.success) {
+    throw new DecodeErrorRaised({
+      kind: "decode",
+      reason: `${label}: ${result.error?.message ?? "schema validation failed"}`,
+      received: data,
+    });
+  }
+  return result.data as T;
+}
+
 export function fetchStatus(): Promise<StatusResponse> {
-  return ds().get<StatusResponse>("status");
+  return ds().get<unknown>("status").then((d) => validate(S.StatusResponseSchema, d, "status"));
 }
 
 export function fetchCommits(): Promise<CommitRow[]> {
-  return ds().get<CommitRow[]>("commits");
+  return ds().get<unknown>("commits").then((d) => validate(S.commitsResponseSchema, d, "commits"));
 }
 
 export function fetchTimeseries(params: {
@@ -249,12 +264,14 @@ export function fetchTimeseries(params: {
   name?: string;
   agg?: string;
 }): Promise<TimeseriesResponse> {
-  return ds().get<TimeseriesResponse>("metrics/timeseries", {
-    level: params.level,
-    metric: params.metric,
-    name: params.name,
-    agg: params.agg,
-  });
+  return ds()
+    .get<unknown>("metrics/timeseries", {
+      level: params.level,
+      metric: params.metric,
+      name: params.name,
+      agg: params.agg,
+    })
+    .then((d) => validate(S.TimeseriesResponseSchema, d, "metrics/timeseries"));
 }
 
 export function fetchHotspots(params: {
@@ -264,37 +281,49 @@ export function fetchHotspots(params: {
   limit?: number;
   agg?: string;
 }): Promise<HotspotsResponse> {
-  return ds().get<HotspotsResponse>("hotspots", {
-    level: params.level,
-    metric: params.metric,
-    by: params.by,
-    limit: params.limit,
-    agg: params.agg,
-  });
+  return ds()
+    .get<unknown>("hotspots", {
+      level: params.level,
+      metric: params.metric,
+      by: params.by,
+      limit: params.limit,
+      agg: params.agg,
+    })
+    .then((d) => validate(S.HotspotsResponseSchema, d, "hotspots"));
 }
 
 export function fetchCatalog(level: "module" | "file"): Promise<{ level: string; names: string[] }> {
-  return ds().get<{ level: string; names: string[] }>("catalog", { level });
+  return ds().get<unknown>("catalog", { level }).then((d) => validate(S.CatalogResponseSchema, d, "catalog"));
 }
 
 export function fetchEdges(commit?: string, includeZeroScore = false): Promise<EdgesResponse> {
-  return ds().get<EdgesResponse>("edges", { commit, include_zero_score: includeZeroScore });
+  return ds()
+    .get<unknown>("edges", { commit, include_zero_score: includeZeroScore })
+    .then((d) => validate(S.EdgesResponseSchema, d, "edges"));
 }
 
 export function fetchStructureTimeseries(includeZeroScore = false): Promise<StructureTimeseriesResponse> {
-  return ds().get<StructureTimeseriesResponse>("structure/timeseries", { include_zero_score: includeZeroScore });
+  return ds()
+    .get<unknown>("structure/timeseries", { include_zero_score: includeZeroScore })
+    .then((d) => validate(S.StructureTimeseriesResponseSchema, d, "structure/timeseries"));
 }
 
 export function fetchSnapshotModules(commit?: string): Promise<{ commit_hash: string; modules: ModuleSnapshot[] }> {
-  return ds().get<{ commit_hash: string; modules: ModuleSnapshot[] }>("snapshot/modules", { commit });
+  return ds()
+    .get<unknown>("snapshot/modules", { commit })
+    .then((d) => validate(S.SnapshotModulesResponseSchema, d, "snapshot/modules"));
 }
 
 export function fetchSnapshotFiles(commit?: string, module?: string): Promise<{ commit_hash: string; files: FileSnapshot[] }> {
-  return ds().get<{ commit_hash: string; files: FileSnapshot[] }>("snapshot/files", { commit, module });
+  return ds()
+    .get<unknown>("snapshot/files", { commit, module })
+    .then((d) => validate(S.SnapshotFilesResponseSchema, d, "snapshot/files"));
 }
 
 export function fetchGraph(commit?: string, includeZeroScore = false): Promise<GraphResponse> {
-  return ds().get<GraphResponse>("graph", { commit, include_zero_score: includeZeroScore });
+  return ds()
+    .get<unknown>("graph", { commit, include_zero_score: includeZeroScore })
+    .then((d) => validate(S.GraphResponseSchema, d, "graph"));
 }
 
 export function fetchEdgePointsBatch(
@@ -302,20 +331,23 @@ export function fetchEdgePointsBatch(
   commit?: string,
   includeZeroScore = false,
 ): Promise<{ commit_hash: string; edges: EdgePointsResponse[]; missing: { source: string; target: string }[] }> {
-  return ds().post<{ commit_hash: string; edges: EdgePointsResponse[]; missing: { source: string; target: string }[] }>(
-    "edge-points/batch",
-    { pairs, commit: commit ?? null, include_zero_score: includeZeroScore },
-  );
+  return ds()
+    .post<unknown>("edge-points/batch", { pairs, commit: commit ?? null, include_zero_score: includeZeroScore })
+    .then((d) => validate(S.EdgePointsBatchResponseSchema, d, "edge-points/batch"));
 }
 
 export function fetchFailures(commit?: string): Promise<FailuresResponse> {
-  return ds().get<FailuresResponse>("failures", { commit });
+  return ds().get<unknown>("failures", { commit }).then((d) => validate(S.FailuresResponseSchema, d, "failures"));
 }
 
 export function fetchRelationsDiff(commitA: string, commitB: string): Promise<RelationsDiffResponse> {
-  return ds().get<RelationsDiffResponse>("relations/diff", { commit_a: commitA, commit_b: commitB });
+  return ds()
+    .get<unknown>("relations/diff", { commit_a: commitA, commit_b: commitB })
+    .then((d) => validate(S.RelationsDiffResponseSchema, d, "relations/diff"));
 }
 
 export function fetchEdgeKindTimeseries(kind?: string): Promise<{ points: EdgeKindPoint[] }> {
-  return ds().get<{ points: EdgeKindPoint[] }>("edge-kinds/timeseries", { kind });
+  return ds()
+    .get<unknown>("edge-kinds/timeseries", { kind })
+    .then((d) => validate(S.EdgeKindTimeseriesResponseSchema, d, "edge-kinds/timeseries"));
 }

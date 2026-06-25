@@ -85,14 +85,14 @@ function lineCategoryLabel(key: LineCategoryKey, fallback: string): string {
 
 export function SnapshotPage() {
   const { pendingSnapshot, clearPendingSnapshot } = useAppNavigation();
-  const [commits, setCommits] = useState<CommitRow[]>([]);
+  const [commits, setCommits] = useState<readonly CommitRow[]>([]);
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
-  const [modules, setModules] = useState<ModuleSnapshot[]>([]);
-  const [files, setFiles] = useState<FileSnapshot[]>([]);
-  const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
-  const [graphEdges, setGraphEdges] = useState<GraphEdge[]>([]);
-  const [fullEdges, setFullEdges] = useState<EdgeRow[]>([]);
-  const [failures, setFailures] = useState<FailureRow[]>([]);
+  const [modules, setModules] = useState<readonly ModuleSnapshot[]>([]);
+  const [files, setFiles] = useState<readonly FileSnapshot[]>([]);
+  const [graphNodes, setGraphNodes] = useState<readonly GraphNode[]>([]);
+  const [graphEdges, setGraphEdges] = useState<readonly GraphEdge[]>([]);
+  const [fullEdges, setFullEdges] = useState<readonly EdgeRow[]>([]);
+  const [failures, setFailures] = useState<readonly FailureRow[]>([]);
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<FileSnapshot | null>(null);
   const [hoveredFile, setHoveredFile] = useState<FileSnapshot | null>(null);

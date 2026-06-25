@@ -1,5 +1,4 @@
-import type { GraphEdge, GraphNode } from "../api/client";
-import { formatCodeLines, formatMetricValue } from "../utils/metricFormat";
+
 
 export const GRAPH_WIDTH = 1600;
 export const GRAPH_HEIGHT = 860;
@@ -13,37 +12,15 @@ export const INITIAL_VIEWBOX = `0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`;
 export const MIN_NODE_RADIUS = 34;
 
 export type ViewBox = {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
 };
 
 export function edgeStrokeWidth(points: number, scale = 1): number {
   const base = MIN_EDGE_STROKE + Math.min(MAX_EDGE_STROKE - MIN_EDGE_STROKE, Math.max(points, 0) / 18);
   return base * scale;
-}
-
-export function buildEdgeTooltip(edge: GraphEdge): string {
-  return [
-    `${edge.source} -> ${edge.target}`,
-    `points=${edge.breakdown.total}`,
-    `reuse=${edge.breakdown.model_reuse}`,
-    `extend/method=${edge.breakdown.extension_or_method}`,
-    `view=${edge.breakdown.view}`,
-    `field/property=${edge.breakdown.field_property}`,
-  ].join(" | ");
-}
-
-export function buildNodeTooltip(node: GraphNode, visible: number): string {
-  return [
-    node.module_name,
-    `visible=${formatCodeLines(visible)}`,
-    `CC med ${formatMetricValue(node.cyclomatic_median)}`,
-    `cognitive med ${formatMetricValue(node.cognitive_median)}`,
-    `Jones med ${formatMetricValue(node.jones_median)}`,
-    `methods=${node.method_count}`,
-  ].join(" | ");
 }
 
 export function edgeCurvePath(

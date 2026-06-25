@@ -4,9 +4,9 @@ import { t } from "../i18n";
 import { formatCodeLines } from "../utils/metricFormat";
 
 type Props = {
-  total: number;
-  selectedLabels: string[];
-  loading?: boolean;
+  readonly total: number;
+  readonly selectedLabels: readonly string[];
+  readonly loading?: boolean;
 };
 
 export function VisibleLinesSummary({ total, selectedLabels, loading = false }: Props) {

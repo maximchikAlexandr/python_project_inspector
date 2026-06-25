@@ -4,8 +4,8 @@ import { t } from "../i18n";
 import { BRIGHTNESS_CRITERIA, type BrightnessCriterion } from "../registry/odooProfile";
 
 type Props = {
-  active: Set<BrightnessCriterion>;
-  onChange: (next: Set<BrightnessCriterion>) => void;
+  readonly active: ReadonlySet<BrightnessCriterion>;
+  readonly onChange: (next: Set<BrightnessCriterion>) => void;
 };
 
 function brightnessLabel(key: BrightnessCriterion, fallback: string): string {
