@@ -97,19 +97,16 @@ export function runAnalyze(opts: AnalyzeOptions): RunHandle {
     });
 
     child.on("error", (err) => {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        opts.onEvent({
-          type: "run_failed",
-          run_id: runId ?? "",
-          exit_reason: "unknown",
-          message: new CliNotFound(err.message).message,
-        });
-      }
+      const message = (err as NodeJS.ErrnoException).code === "ENOENT"
+        ? new CliNotFound(err.message).message
+        : err.message;
+      // Spawn failure: Node does NOT emit `close` for ENOENT, so finish here
+      // to resolve `done` (otherwise it hangs and activeRuns leaks).
       finish({
         type: "run_failed",
         run_id: runId ?? "",
         exit_reason: "unknown",
-        message: err.message,
+        message,
       });
     });
 
@@ -152,8 +149,10 @@ export function runAnalyze(opts: AnalyzeOptions): RunHandle {
         resolveKill();
       });
     });
-    await recoverStaleLock(opts);
+    // Resolve `done` BEFORE recoverStaleLock so a cancel-and-restart caller can
+    // set a new handle before the old handle's done-cleanup deletes it (B3 race).
     finish("cancelled");
+    await recoverStaleLock(opts);
   };
 
   return {

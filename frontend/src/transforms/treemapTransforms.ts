@@ -1,4 +1,4 @@
-import { map, pipe, unique } from "remeda";
+import { map, unique } from "remeda";
 
 import type { FileSnapshot } from "../api/client";
 import { LINE_CATEGORIES } from "../registry/odooProfile";
@@ -6,7 +6,7 @@ import { formatCodeLines, formatStatsLine } from "../utils/metricFormat";
 
 const FOLDER_COLORS = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc949", "#af7aa1", "#ff9da7"];
 
-export function categoryLabel(category: string): string {
+function categoryLabel(category: string): string {
   return LINE_CATEGORIES.find(({ key }) => key === category)?.label ?? category;
 }
 
@@ -53,9 +53,5 @@ export function isFileSnapshot(value: TreemapRoot | FileSnapshot): value is File
 }
 
 export function treemapLegendFolders(files: ReadonlyArray<FileSnapshot>): string[] {
-  return pipe(
-    files,
-    (items) => map(items, (file) => file.top_folder),
-    unique(),
-  );
+  return unique(map(files, (file) => file.top_folder));
 }

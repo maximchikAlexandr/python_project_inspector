@@ -1,4 +1,4 @@
-import { filter, map, pipe, sumBy } from "remeda";
+import { filter, map, sumBy } from "remeda";
 
 import type { EdgeKind } from "../domain/domain";
 
@@ -73,7 +73,7 @@ export function graphBreakdownKindMeta(edges: ReadonlyArray<{ readonly breakdown
   return filter(GRAPH_BREAKDOWN_KINDS, ({ key }) => present.has(key));
 }
 
-export const EDGE_KIND_LABELS: Readonly<Record<EdgeKind, string>> = {
+const EDGE_KIND_LABELS: Readonly<Record<EdgeKind, string>> = {
   python__inherit: "Model extension (_inherit)",
   python_method_call: "Method call",
   python_private_method_call: "Private method call",
@@ -157,21 +157,19 @@ export function textColorForComplexityRatio(ratio: number): string {
   return ratio >= 0.45 ? "#ffffff" : "#111827";
 }
 
-export function normalizeValues(values: ReadonlyArray<number>): number[] {
-  return pipe(values, (items) => {
-    if (!items.length) {
-      return [];
-    }
-    const min = Math.min(...items);
-    const max = Math.max(...items);
-    if (min === max) {
-      return map(items, () => 0);
-    }
-    return map(items, (value) => (value - min) / (max - min));
-  });
+function normalizeValues(values: ReadonlyArray<number>): number[] {
+  if (!values.length) {
+    return [];
+  }
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  if (min === max) {
+    return map(values, () => 0);
+  }
+  return map(values, (value) => (value - min) / (max - min));
 }
 
-export function graphNodeMetricValue(node: BrightnessNode, criterion: BrightnessCriterion): number {
+function graphNodeMetricValue(node: BrightnessNode, criterion: BrightnessCriterion): number {
   if (criterion === "code_lines") {
     return node.line_categories.python_lines ?? 0;
   }

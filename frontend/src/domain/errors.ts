@@ -3,7 +3,7 @@
  *
  * Recoverable transport/decode failures are typed values, not plain `Error`:
  * callers can `switch` on `kind` instead of parsing message strings. Truly
- * impossible states still use `invariant()` below.
+ * impossible states throw plain `Error`.
  */
 
 /** Transport failure raised by `HttpDataSource` / `WebviewDataSource`. */
@@ -30,16 +30,9 @@ export interface RpcTransportError {
 /** Webview message bridge lifecycle failure (timeout, disposed, no api). */
 export interface WebviewTransportError {
   readonly kind: "webview";
-  readonly reason: WebviewTransportReason;
+  readonly reason: "timeout";
   readonly message: string;
 }
-
-export type WebviewTransportReason =
-  | "disposed"
-  | "timeout"
-  | "no_api"
-  | "session_error"
-  | "stdin_unavailable";
 
 export class TransportErrorRaised extends Error {
   readonly error: TransportError;
@@ -74,12 +67,5 @@ export class DecodeErrorRaised extends Error {
     super(`decode failure: ${error.reason}`);
     this.name = "DecodeErrorRaised";
     this.error = error;
-  }
-}
-
-/** Fail-fast invariant for impossible states (PPI-034). */
-export function invariant(condition: unknown, message: string): asserts condition {
-  if (condition === null || condition === undefined || condition === false) {
-    throw new Error(`invariant violated: ${message}`);
   }
 }

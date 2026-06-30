@@ -2,15 +2,14 @@
  * Typed errors for the VS Code extension bridge (PPI-034).
  *
  * Recoverable transport/lifecycle failures are typed values so callers can
- * `switch` on `kind`. Truly impossible states still use `invariant()` below.
+ * `switch` on `kind`.
  */
 
-/** Transport/lifecycle failure from the `ppi rpc` bridge or analyze runner. */
+/** Transport/lifecycle failure from the `ppi rpc` bridge. */
 export type BridgeError =
   | RpcProcessError
   | RpcRequestError
-  | RpcProtocolError
-  | CliLifelineError;
+  | RpcProtocolError;
 
 /** `ppi rpc` servant process failed to start or exited unexpectedly. */
 export interface RpcProcessError {
@@ -33,12 +32,6 @@ export interface RpcProtocolError {
   readonly message: string;
 }
 
-/** CLI lifeline failed (analyze runner subprocess error). */
-export interface CliLifelineError {
-  readonly kind: "cli_lifeline";
-  readonly message: string;
-}
-
 export class BridgeErrorRaised extends Error {
   readonly error: BridgeError;
   constructor(error: BridgeError) {
@@ -56,14 +49,5 @@ export function describeBridgeError(error: BridgeError): string {
       return `rpc request ${error.reason} (${error.method}): ${error.message}`;
     case "rpc_protocol":
       return `rpc protocol: ${error.message}`;
-    case "cli_lifeline":
-      return `cli lifeline: ${error.message}`;
-  }
-}
-
-/** Fail-fast invariant for impossible states (PPI-034). */
-export function invariant(condition: unknown, message: string): asserts condition {
-  if (condition === null || condition === undefined || condition === false) {
-    throw new Error(`invariant violated: ${message}`);
   }
 }

@@ -33,12 +33,15 @@ def _json_default(obj: object) -> object:
 
 
 def serve_rpc(repo: Path) -> None:
-    """Serve read-only JSON-RPC requests over stdio, reusing one store reader.
+    """Serve read-only JSON-RPC requests over stdio.
 
-    The store reader is opened lazily on first use and held for the loop lifetime
-    (no per-request cold-open); it is reopened only after a schema incompatibility
-    (contracts/query-rpc.md). All method/lock/store/schema checks are owned by
-    ``dispatch``; this loop only decodes, dispatches, and serializes.
+    Each request opens a short-lived read-only ``StoreReader`` and closes it
+    before writing the response. This is required because the dashboard is
+    allowed to stay open while the user starts a new analysis: a long-lived
+    read-only DuckDB connection would block the writer (DuckDB allows either
+    one read-write process or multiple read-only processes, but not both).
+    The RPC servant never migrates the store — schema incompatibilities are
+    surfaced as ``SCHEMA_INCOMPATIBLE`` so the user re-runs ``analyze --rebuild``.
 
     The DuckDB store is read from ``repo/.ppi/history.duckdb`` and the writer lock
     from ``writer_lock_path(repo)``, matching ``ppi analyze`` and ``ppi serve``.
@@ -47,80 +50,79 @@ def serve_rpc(repo: Path) -> None:
     """
     store_file = store_path(repo)
     lock_file = writer_lock_path(repo)
-    reader: StoreReader | None = None
 
-    def get_reader(
-        migrate: bool,
-    ) -> tuple[StoreReader | None, schema.SchemaIncompatibleError | None]:
-        """Return the cached reader, opening it lazily and capturing schema errors."""
-        nonlocal reader
-        if reader is not None:
-            return reader, None
-        if not store_file.is_file():
-            return None, None
+    for raw_line in sys.stdin:
+        line = raw_line.strip()
+        if not line:
+            continue
         try:
-            reader = StoreReader(store_file, read_only=True, migrate=migrate)
-            return reader, None
-        except schema.SchemaIncompatibleError as exc:
-            reader = None
-            return None, exc
-
-    try:
-        for raw_line in sys.stdin:
-            line = raw_line.strip()
-            if not line:
-                continue
-            try:
-                request = msgspec.json.decode(line.encode("utf-8"), type=RpcRequest)
-            except msgspec.DecodeError:
-                sys.stdout.write(
-                    json.dumps(
-                        {
-                            "id": -1,
-                            "error": {"code": "INVALID_PARAMS", "message": "malformed request"},
-                        }
-                    )
-                    + "\n"
+            request = msgspec.json.decode(line.encode("utf-8"), type=RpcRequest)
+        except msgspec.DecodeError:
+            sys.stdout.write(
+                json.dumps(
+                    {
+                        "id": -1,
+                        "error": {"code": "INVALID_PARAMS", "message": "malformed request"},
+                    }
                 )
-                sys.stdout.flush()
-                continue
-            if request.method == "rpc.close":
-                break
-            writer_active = project_lock.is_locked(lock_file)
-            store_present = store_file.is_file()
-            rpc_reader, schema_error = get_reader(migrate=not writer_active)
-            try:
-                result = dispatch(
-                    rpc_reader,
-                    request.method,
-                    request.params,
-                    writer_active=writer_active,
-                    store_present=store_present,
-                    schema_error=schema_error,
-                )
-                sys.stdout.write(
-                    json.dumps(
-                        {"id": request.id, "result": result},
-                        ensure_ascii=False,
-                        default=_json_default,
-                    )
-                    + "\n"
-                )
-            except QueryError as exc:
-                if exc.code == "SCHEMA_INCOMPATIBLE" and reader is not None:
-                    reader.close()
-                    reader = None
-                sys.stdout.write(
-                    json.dumps(
-                        {"id": request.id, "error": {"code": exc.code, "message": exc.message}},
-                        ensure_ascii=False,
-                    )
-                    + "\n"
-                )
+                + "\n"
+            )
             sys.stdout.flush()
-    finally:
-        if reader is not None:
-            reader.close()
+            continue
+        if request.method == "rpc.close":
+            break
+        writer_active = project_lock.is_locked(lock_file)
+        store_present = store_file.is_file()
+        # Open a short-lived read-only reader per request. Never migrate from
+        # the read-only servant (#11): surface SCHEMA_INCOMPATIBLE instead.
+        reader: StoreReader | None = None
+        schema_error: schema.SchemaIncompatibleError | None = None
+        if store_present and not writer_active:
+            try:
+                reader = StoreReader(store_file, read_only=True, migrate=False)
+            except schema.SchemaIncompatibleError as exc:
+                schema_error = exc
+            except OSError:
+                # Lock contention, corrupt file, IO error — don't crash the servant.
+                pass
+        try:
+            result = dispatch(
+                reader,
+                request.method,
+                request.params,
+                writer_active=writer_active,
+                store_present=store_present,
+                schema_error=schema_error,
+            )
+            sys.stdout.write(
+                json.dumps(
+                    {"id": request.id, "result": result},
+                    ensure_ascii=False,
+                    default=_json_default,
+                )
+                + "\n"
+            )
+        except QueryError as exc:
+            sys.stdout.write(
+                json.dumps(
+                    {"id": request.id, "error": {"code": exc.code, "message": exc.message}},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+        except (TypeError, ValueError) as exc:
+            # Serialization failure or unserializable result — keep the servant alive.
+            sys.stdout.write(
+                json.dumps(
+                    {"id": request.id, "error": {"code": "INTERNAL", "message": f"serialization failed: {exc}"}},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+        finally:
+            if reader is not None:
+                reader.close()
+        sys.stdout.flush()
 
 
 __all__ = ["serve_rpc"]

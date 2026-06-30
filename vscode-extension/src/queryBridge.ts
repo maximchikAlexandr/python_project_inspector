@@ -52,7 +52,6 @@ export class QueryBridge {
   private stderrTail = "";
   private restartCount = 0;
   private restartWindowStart = 0;
-  private sessionError: string | null = null;
 
   constructor(options: QueryBridgeOptions) {
     this.options = options;
@@ -82,8 +81,6 @@ export class QueryBridge {
     }
     argv.push("rpc");
     this.proc = spawn(argv[0], argv.slice(1), { stdio: ["pipe", "pipe", "pipe"] });
-    // A fresh servant clears any prior non-fatal session error.
-    this.sessionError = null;
     this.proc.stdout?.setEncoding("utf-8");
     this.proc.stdout?.on("data", (chunk: string) => this.onStdout(chunk));
     this.proc.stderr?.setEncoding("utf-8");
@@ -182,15 +179,9 @@ export class QueryBridge {
     }
   }
 
-  /** Mark a non-fatal protocol/lifecycle violation as a session-level error. */
+  /** Log a non-fatal protocol/lifecycle violation for diagnostics. */
   private markSessionError(error: BridgeError): void {
-    this.sessionError = describeBridgeError(error);
-    console.warn(`[ppi] ${this.sessionError}`);
-  }
-
-  /** Last recorded session-level error (protocol violation, spawn failure). */
-  get sessionErrorMessage(): string | null {
-    return this.sessionError;
+    console.warn(`[ppi] ${describeBridgeError(error)}`);
   }
 
   /** Send a request and await the response. Restarts the servant if it died. */
@@ -248,6 +239,13 @@ export class QueryBridge {
     }
     this.pending.clear();
     if (this.proc) {
+      // Send a protocol-level close so the servant closes its reader and exits
+      // cleanly, then end stdin and kill as a fallback.
+      try {
+        this.proc.stdin?.write(JSON.stringify({ id: 0, method: "rpc.close", params: {} }) + "\n");
+      } catch {
+        // ignore
+      }
       try {
         this.proc.stdin?.end();
       } catch {

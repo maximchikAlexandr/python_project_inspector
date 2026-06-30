@@ -34,8 +34,6 @@ describe("WebviewDataSource.post (A1 — no __body envelope)", () => {
       postMessage: (m: unknown) => {
         posted.push(m);
       },
-      getState: () => undefined,
-      setState: () => undefined,
     };
     const g = globalThis as unknown as { acquireVsCodeApi?: () => unknown; window?: EventTarget };
     const originalAcquire = g.acquireVsCodeApi;

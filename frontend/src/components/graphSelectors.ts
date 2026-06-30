@@ -1,4 +1,4 @@
-import { clamp, filter, map, pipe, sumBy } from "remeda";
+import { clamp, filter, map, sumBy } from "remeda";
 
 import type { GraphEdge, GraphNode } from "../api/client";
 import {
@@ -40,7 +40,7 @@ export type NodeDisplayModel = {
   readonly badges: { readonly in: number; readonly out: number; readonly files: number; readonly methods: number } | null;
 };
 
-export type EdgeDisplayModel = { readonly thickness: number; readonly visible: boolean; readonly label: string | null };
+type EdgeDisplayModel = { readonly thickness: number; readonly visible: boolean; readonly label: string | null };
 
 export type GraphEdgeViewModel = {
   readonly key: string;
@@ -135,10 +135,7 @@ export function applyGraphFilters(
   filterState: GraphFilterState,
   selectedModule: string | null = null,
 ): GraphFilterResult {
-  const allKindsDisabled = pipe(
-    Object.values(filterState.enabledEdgeKinds),
-    (values) => values.every((enabled) => !enabled),
-  );
+  const allKindsDisabled = Object.values(filterState.enabledEdgeKinds).every((enabled) => !enabled);
   if (allKindsDisabled) {
     return {
       nodes: [],
@@ -261,17 +258,12 @@ export function computeNodeDisplay(
             display.nodeSizeScale,
           { min: MIN_NODE_RADIUS, max: MAX_NODE_RADIUS },
         );
-  let label: string | null = null;
-  if (display.labelMode === "always") {
-    label = node.module_name;
-  } else if (display.labelMode === "selected" && context.selected) {
-    label = node.module_name;
-  } else if (display.labelMode === "hover" && context.hovered) {
-    label = node.module_name;
-  }
-  if (label && display.labelFadeThreshold > 0 && context.zoomScale < display.labelFadeThreshold) {
-    label = null;
-  }
+  const shouldLabel = display.labelMode === "always"
+    || (display.labelMode === "selected" && context.selected)
+    || (display.labelMode === "hover" && context.hovered);
+  const label = shouldLabel && !(display.labelFadeThreshold > 0 && context.zoomScale < display.labelFadeThreshold)
+    ? node.module_name
+    : null;
   return {
     radius,
     fill: context.fill,
@@ -321,7 +313,7 @@ export function maxLinkThicknessMetric(
   );
 }
 
-export function computeEdgeDisplay(
+function computeEdgeDisplay(
   edge: GraphEdge,
   display: GraphDisplayState,
   context: { readonly visibleScore: number; readonly maxThicknessMetric: number },

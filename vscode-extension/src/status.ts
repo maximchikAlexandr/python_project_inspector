@@ -8,6 +8,7 @@ import type { ProgressEvent } from "./contracts";
 
 export class StatusController {
   private readonly item: vscode.StatusBarItem;
+  private activeRunCount = 0;
 
   constructor() {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
@@ -25,13 +26,18 @@ export class StatusController {
   }
 
   setRunning(folder: string): void {
+    this.activeRunCount++;
     this.item.text = `$(sync~spin) PPI: analyzing`;
     this.item.tooltip = `Analyzing ${folder}`;
     this.item.show();
   }
 
   setIdle(): void {
-    this.item.hide();
+    // Only hide when ALL concurrent runs finish (FR-006 allows one run per folder).
+    this.activeRunCount = Math.max(0, this.activeRunCount - 1);
+    if (this.activeRunCount === 0) {
+      this.item.hide();
+    }
   }
 
   setError(message: string): void {

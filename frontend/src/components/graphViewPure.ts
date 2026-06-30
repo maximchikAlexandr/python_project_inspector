@@ -2,9 +2,9 @@
 
 export const GRAPH_WIDTH = 1600;
 export const GRAPH_HEIGHT = 860;
-export const MIN_EDGE_STROKE = 0.9;
-export const MAX_EDGE_STROKE = 3;
-export const CAMERA_PADDING = 140;
+const MIN_EDGE_STROKE = 0.9;
+const MAX_EDGE_STROKE = 3;
+const CAMERA_PADDING = 140;
 export const ZOOM_MIN = 0.35;
 export const ZOOM_MAX = 8;
 export const ZOOM_STEP = 1.18;

@@ -34,6 +34,7 @@
     "onCommand:ppi.analyzeRebuild",
     "onCommand:ppi.openDashboard",
     "onCommand:ppi.cancelAnalysis",
+    "onCommand:ppi.openSettings",
     "onStartupFinished"
   ],
   "contributes": {
@@ -182,10 +183,10 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.90.0",
-    "@types/vscode-webview": "^1.57.0",
     "@vscode/test-electron": "^2.4.0",
     "@vscode/vsce": "^3.0.0",
     "esbuild": "^0.23.0",
+    "knip": "^6.23.0",
     "puppeteer-core": "^23.11.1",
     "typescript": "^5.9.0"
   },

@@ -10,7 +10,7 @@
 /** Discriminated union of `ppi analyze --json` progress events (FR-019). */
 export type ProgressEvent = RunStarted | CommitProgress | RunCompleted | RunFailed;
 
-export interface RunStarted {
+interface RunStarted {
   readonly type: "run_started";
   readonly run_id: string;
   readonly branch: string;
@@ -18,7 +18,7 @@ export interface RunStarted {
   readonly commits_total: number;
 }
 
-export interface CommitProgress {
+interface CommitProgress {
   readonly type: "commit_progress";
   readonly processed: number;
   readonly commits_total: number;
@@ -43,12 +43,6 @@ export interface RunFailed {
 
 /** Event types that terminate a run (used to resolve the `done` promise). */
 export const TERMINAL_EVENT_TYPES = new Set(["run_completed", "run_failed"]);
-
-/** JSON-RPC error body returned by the `ppi rpc` servant. */
-export interface RpcErrorBody {
-  readonly code: string;
-  readonly message: string;
-}
 
 /** Raised when the resolved `ppi` CLI executable cannot be launched (FR-014). */
 export class CliNotFound extends Error {

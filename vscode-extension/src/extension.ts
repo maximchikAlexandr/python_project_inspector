@@ -15,7 +15,6 @@ import { resolveCliArgs } from "./cliArgs";
 import { verifyCli } from "./env";
 import { readSettings, resolveProfile } from "./settings";
 import { StatusController, errorWithActions, infoWithAction } from "./status";
-import { ProgressEventSchema } from "./webviewMessages";
 import { registerWorkspaceView } from "./workspaceTreeProvider";
 
 let output: vscode.OutputChannel;
@@ -24,16 +23,6 @@ const activeRuns = new Map<string, RunHandle>();
 const panels = new Map<string, DashboardPanel>();
 let extensionUri: vscode.Uri;
 let status: StatusController;
-
-// Maps internal progress event types to the Webview event names from
-// contracts/webview-bridge.md. Module-level so it is not rebuilt per event.
-const PROGRESS_EVENT_NAME: Record<string, string> = {
-  run_started: "runStarted",
-  commit_progress: "progress",
-  run_completed: "runCompleted",
-  run_failed: "runFailed",
-};
-
 
 export function activate(context: vscode.ExtensionContext): void {
   extensionUri = context.extensionUri;
@@ -133,6 +122,16 @@ async function runAnalyzeCommand(rebuild = false, uri?: vscode.Uri): Promise<voi
   const cliArgs = resolveCliArgs({ ...settings, profile });
   if (!await tryVerifyCli(cliArgs)) return;
 
+  // DuckDB allows either one read-write process or multiple read-only processes.
+  // The dashboard uses a read-only `ppi rpc` process; close it before starting
+  // writer analysis to release the DuckDB file read lock.
+  const dashboard = panels.get(folderKey);
+  if (dashboard) {
+    dashboard.dispose();
+    panels.delete(folderKey);
+    output.appendLine("PPI: closed dashboard query bridge before analysis to release DuckDB read lock.");
+  }
+
   status.setRunning(folder.name);
 
   const handle = runAnalyze({
@@ -141,7 +140,7 @@ async function runAnalyzeCommand(rebuild = false, uri?: vscode.Uri): Promise<voi
     profile,
     analysisDir: settings.analysisDir,
     rebuild,
-    onEvent: (event) => onProgress(event, folder.name, folderKey),
+    onEvent: (event) => onProgress(event, folder.name),
   });
   activeRuns.set(folderKey, handle);
 
@@ -154,13 +153,11 @@ async function runAnalyzeCommand(rebuild = false, uri?: vscode.Uri): Promise<voi
     return;
   }
   if (terminal.type === "run_failed") {
-    onRunFailed(terminal as RunFailed, handle.stderrTail);
+    onRunFailed(terminal, handle.stderrTail, folderKey);
     return;
   }
-  // run_completed
-  const t = terminal as { type: "run_completed"; commits_succeeded: number; commits_failed: number };
   const ok = await infoWithAction(
-    `PPI: analysis completed (${t.commits_succeeded} ok, ${t.commits_failed} failed).`,
+    `PPI: analysis completed (${terminal.commits_succeeded} ok, ${terminal.commits_failed} failed).`,
     "View Dashboard",
   );
   if (ok) {
@@ -168,25 +165,16 @@ async function runAnalyzeCommand(rebuild = false, uri?: vscode.Uri): Promise<voi
   }
 }
 
-function onProgress(event: ProgressEvent, folderName: string, folderKey: string): void {
+function onProgress(event: ProgressEvent, folderName: string): void {
   if (event.type === "run_started" || event.type === "commit_progress") {
     status.setProgress(status.labelFor(event, folderName));
   }
-  const panel = panels.get(folderKey);
-  if (panel) {
-    const mappedEvent = PROGRESS_EVENT_NAME[event.type];
-    if (mappedEvent) {
-      const parsed = ProgressEventSchema.safeParse(event);
-      if (parsed.success) {
-        panel.postEvent(mappedEvent, Object.assign({}, parsed.data));
-      }
-    }
-  }
 }
 
-function onRunFailed(failed: RunFailed, stderrTail: string): void {
+function onRunFailed(failed: RunFailed, stderrTail: string, folderKey: string): void {
   status.setError(failed.message);
   const needsRebuild = failed.exit_reason === "schema_incompatible" || /rerun with --rebuild|rerun analyze with profile/i.test(failed.message);
+  const duckDbLock = /Could not set lock on file .*history\.duckdb|Conflicting lock is held/i.test(failed.message);
   // Surface the failing CLI output so the analyst can diagnose without leaving the editor (FR-004/SC-006).
   if (stderrTail.trim() || failed.stderr_tail?.trim()) {
     output.clear();
@@ -195,9 +183,19 @@ function onRunFailed(failed: RunFailed, stderrTail: string): void {
     output.appendLine(stderrTail || failed.stderr_tail || "(no stderr captured)");
     output.show();
   }
-  const actions = needsRebuild ? ["Re-run with rebuild", "Show output"] : ["Retry", "Show output"];
-  void errorWithActions(`PPI: analysis failed — ${failed.message}`, actions).then((action) => {
-    if (action === "Retry") {
+  const actions = duckDbLock
+    ? ["Close Dashboard and Retry", "Show output"]
+    : needsRebuild ? ["Re-run with rebuild", "Show output"] : ["Retry", "Show output"];
+  const userMessage = duckDbLock
+    ? "PPI: analysis failed — the dashboard holds a read lock on the analysis database. Close the dashboard and retry."
+    : `PPI: analysis failed — ${failed.message}`;
+  void errorWithActions(userMessage, actions).then((action) => {
+    if (action === "Close Dashboard and Retry") {
+      // Release only this folder's dashboard read lock, then retry.
+      panels.get(folderKey)?.dispose();
+      panels.delete(folderKey);
+      void vscode.commands.executeCommand("ppi.analyze");
+    } else if (action === "Retry") {
       void vscode.commands.executeCommand("ppi.analyze");
     } else if (action === "Re-run with rebuild") {
       void vscode.commands.executeCommand("ppi.analyzeRebuild");
@@ -219,10 +217,6 @@ async function cancelAnalysisCommand(): Promise<void> {
     return;
   }
   await handle.cancel();
-  const panel = panels.get(key);
-  if (panel) {
-    panel.postEvent("runCancelled");
-  }
 }
 
 async function openDashboardCommand(uri?: vscode.Uri): Promise<void> {

@@ -17,7 +17,7 @@ import {
   type GraphSettings,
 } from "./graphSettingsTypes";
 
-export type PersistedSettings = {
+type PersistedSettings = {
   readonly version: typeof SETTINGS_SCHEMA_VERSION;
   readonly filter: GraphSettings["filter"];
   readonly display: GraphSettings["display"];
@@ -148,7 +148,7 @@ function normalizeSections(value: unknown): GraphSettings["sectionsExpanded"] {
   return normalizeBooleanRecord(value, DEFAULT_SECTIONS_EXPANDED);
 }
 
-export function mergeSettingsWithDefaults(partial: Readonly<Partial<PersistedSettings>> | null | undefined): GraphSettings {
+function mergeSettingsWithDefaults(partial: Readonly<Partial<PersistedSettings>> | null | undefined): GraphSettings {
   if (!partial) {
     return { ...DEFAULT_GRAPH_SETTINGS, sectionsExpanded: { ...DEFAULT_SECTIONS_EXPANDED } };
   }
@@ -160,7 +160,7 @@ export function mergeSettingsWithDefaults(partial: Readonly<Partial<PersistedSet
   };
 }
 
-export function parseSettings(raw: string | null): ParseSettingsResult {
+function parseSettings(raw: string | null): ParseSettingsResult {
   if (!raw) {
     return { settings: { ...DEFAULT_GRAPH_SETTINGS }, saveDisabled: false };
   }
@@ -175,7 +175,7 @@ export function parseSettings(raw: string | null): ParseSettingsResult {
   }
 }
 
-export function serializeSettings(settings: GraphSettings): string {
+function serializeSettings(settings: GraphSettings): string {
   const payload: PersistedSettings = {
     version: SETTINGS_SCHEMA_VERSION,
     filter: settings.filter,
@@ -207,7 +207,7 @@ export function layoutStorageKey(projectOrRepo: string, commitHash: string): str
   return `ppi.graph.layout.${projectOrRepo}.${commitHash}`;
 }
 
-export function parseLayout(raw: string | null): ParseLayoutResult {
+function parseLayout(raw: string | null): ParseLayoutResult {
   if (!raw) {
     return { layout: null, saveDisabled: false };
   }
@@ -223,7 +223,7 @@ export function parseLayout(raw: string | null): ParseLayoutResult {
   }
 }
 
-export function serializeLayout(nodes: Readonly<Record<string, LayoutNodePosition>>): string {
+function serializeLayout(nodes: Readonly<Record<string, LayoutNodePosition>>): string {
   return JSON.stringify(encodeLayout(nodes, LAYOUT_SCHEMA_VERSION));
 }
 

@@ -26,6 +26,8 @@ const ALLOWED_COMMANDS = new Set([
 ]);
 
 // Read-only `ppi rpc` methods the dashboard may invoke; anything else is rejected.
+// Mirrors the Python QueryMethod enum (src/ppi/query/dispatch.py); update both
+// together if the CLI query surface grows (contracts/query-rpc.md is canonical).
 const ALLOWED_RPC_METHODS = new Set([
   "status",
   "commits",
@@ -36,8 +38,14 @@ const ALLOWED_RPC_METHODS = new Set([
   "structure/timeseries",
   "snapshot/modules",
   "snapshot/files",
+  "snapshot/module",
+  "snapshot/file",
   "graph",
+  "edge-points",
   "edge-points/batch",
+  "edge-evidence",
+  "models",
+  "depends",
   "failures",
   "relations/diff",
   "edge-kinds/timeseries",
@@ -72,13 +80,14 @@ export class DashboardPanel {
       },
     );
     this.bridge = new QueryBridge({ cliArgs: options.cliArgs, repo: options.repo, analysisDir: options.analysisDir });
-    this.bridge.start();
+    // Lazy-start: the bridge starts on first request, not in the constructor,
+    // so opening the dashboard doesn't hold a DuckDB read lock until the user
+    // actually queries (#14/#21).
     const media = this.mediaUri();
     this.panel.iconPath = {
       light: media.with({ path: `${media.path}/icon-light.svg` }),
       dark: media.with({ path: `${media.path}/icon-dark.svg` }),
     };
-    this.panel.webview.html = "";
     void this.renderHtml();
     this.panel.webview.onDidReceiveMessage((msg) => this.onMessage(msg), undefined, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), undefined, this.disposables);
@@ -175,16 +184,8 @@ export class DashboardPanel {
         });
         return;
       }
-      const sessionError = this.bridge.sessionErrorMessage;
-      if (sessionError) {
-        this.panel.webview.postMessage({
-          kind: "response",
-          status: "error",
-          id: msg.id,
-          error: { code: "TRANSPORT_ERROR", message: sessionError },
-        });
-        return;
-      }
+      // No sessionError gate: bridge.request() self-heals via lazy restart
+      // (FR-023). Gating here would prevent the restart that clears the error.
       try {
         const result = await this.bridge.request(msg.method, msg.params ?? {});
         this.panel.webview.postMessage({ kind: "response", status: "ok", id: msg.id, result });
@@ -208,13 +209,6 @@ export class DashboardPanel {
     return `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:2rem">
       PPI dashboard bundle not found. Build it with <code>cd frontend &amp;&amp; npm run build:webview</code>.
     </body></html>`;
-  }
-
-  postEvent(event: string, data: Record<string, unknown> = {}): void {
-    if (this.disposed) {
-      return;
-    }
-    void this.panel.webview.postMessage({ kind: "event", event, ...data });
   }
 
   dispose(): void {

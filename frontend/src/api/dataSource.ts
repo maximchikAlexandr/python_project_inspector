@@ -9,12 +9,10 @@
 
 import { TransportErrorRaised } from "../domain/errors";
 import {
-  decodeRpcResponse,
   encodeHttpRequest,
   encodeRpcEnvelope,
   httpTransportError,
-  matchPendingResponse,
-  raiseTransportError,
+  parseResponseEnvelope,
   webviewTransportError,
   type RequestEnvelope,
 } from "./apiProtocol";
@@ -45,15 +43,13 @@ async function httpFetch<T>(url: string, init: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
     const detail = await response.text();
-    raiseTransportError(httpTransportError(url, response.status, detail));
+    throw new TransportErrorRaised(httpTransportError(url, response.status, detail));
   }
-  return decodeRpcResponse(response) as Promise<T>;
+  return response.json() as Promise<T>;
 }
 
 interface VsCodeApi {
   postMessage(message: unknown): void;
-  getState<T>(): T | undefined;
-  setState<T>(state: T): void;
 }
 
 declare global {
@@ -72,20 +68,22 @@ class WebviewDataSource implements DataSource {
   constructor() {
     this.api = acquireVsCodeApi();
     this.handler = (event: MessageEvent) => {
-      const message = event.data;
-      for (const [id, entry] of this.pending) {
-        const matched = matchPendingResponse(message, id);
-        if (!matched) {
-          continue;
-        }
-        this.pending.delete(id);
-        clearTimeout(entry.timer);
-        if (matched.status === "error") {
-          entry.reject(new TransportErrorRaised(matched.error));
-        } else {
-          entry.resolve(matched.result);
-        }
+      // Index by id (B5): parse the envelope once, look up the pending entry
+      // directly — no O(n) scan, no mutation during iteration.
+      const matched = parseResponseEnvelope(event.data);
+      if (!matched) {
         return;
+      }
+      const entry = this.pending.get(matched.id);
+      if (!entry) {
+        return;
+      }
+      this.pending.delete(matched.id);
+      clearTimeout(entry.timer);
+      if (matched.status === "error") {
+        entry.reject(new TransportErrorRaised(matched.error));
+      } else {
+        entry.resolve(matched.result);
       }
     };
     window.addEventListener("message", this.handler);

@@ -49,7 +49,7 @@ export type TimeseriesPoint = {
   value: number | null;
 };
 
-export type TimeseriesSeries = {
+type TimeseriesSeries = {
   name: string;
   points: TimeseriesPoint[];
 };
@@ -73,7 +73,7 @@ export type HotspotsResponse = {
   items: HotspotItem[];
 };
 
-export type EdgeBreakdown = {
+type EdgeBreakdown = {
   model_reuse: number;
   extension_or_method: number;
   view: number;
@@ -238,8 +238,8 @@ function ds() {
 }
 
 /** Parse unknown JSON through a zod schema; raise a typed `DecodeError` on failure (PPI-030/034). */
-function validate<T>(schema: { parse(data: unknown): T }, data: unknown, label: string): T {
-  const result = (schema as unknown as { safeParse(d: unknown): { success: boolean; data?: T; error?: { message: string } } }).safeParse(data);
+function validate<T>(schema: { safeParse(d: unknown): { success: boolean; data?: T; error?: { message: string } } }, data: unknown, label: string): T {
+  const result = schema.safeParse(data);
   if (!result.success) {
     throw new DecodeErrorRaised({
       kind: "decode",

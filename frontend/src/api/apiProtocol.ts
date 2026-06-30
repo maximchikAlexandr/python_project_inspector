@@ -8,7 +8,7 @@
  * `DecodeError` instead of a silent `undefined`.
  */
 
-import { DecodeErrorRaised, TransportErrorRaised, type HttpTransportError, type RpcTransportError, type TransportError, type WebviewTransportError, type WebviewTransportReason } from "../domain/errors";
+import { type HttpTransportError, type RpcTransportError, type WebviewTransportError } from "../domain/errors";
 import { ResponseEnvelopeSchema } from "./schemas";
 
 /** Outgoing request envelope posted to the bridge/extension. */
@@ -18,13 +18,6 @@ export interface RequestEnvelope {
   readonly method: string;
   readonly params: Record<string, unknown>;
 }
-
-/** Incoming response envelope from the bridge/extension. Discriminated on
- * `status`: exactly one of `result`/`error`, never both. Mirrors the zod
- * `ResponseEnvelopeSchema` in schemas.ts. */
-export type ResponseEnvelope =
-  | { readonly kind: "response"; readonly status: "ok"; readonly id: number; readonly result: unknown }
-  | { readonly kind: "response"; readonly status: "error"; readonly id: number; readonly error: { code: string; message: string } };
 
 /** Build the HTTP URL for a method as a query-string against `/api/<method>`. */
 export function httpPath(method: string, params: Readonly<Record<string, unknown>>): string {
@@ -43,45 +36,27 @@ export function encodeHttpRequest(method: string, params: Readonly<Record<string
   return { url: httpPath(method, params), init: init ?? { method: "GET" } };
 }
 
-/** Decode an HTTP `Response` into the RPC result (PPI-022). Returns `null`
- * when the response is plain JSON (the common case for /api/* endpoints).
- * Bridges (webview) use {@link matchPendingResponse} instead. */
-export function decodeRpcResponse(response: Response): Promise<unknown> {
-  return response.json() as Promise<unknown>;
-}
-
 /** Build the outgoing request envelope (pure). */
 export function encodeRpcEnvelope(id: number, method: string, params: Record<string, unknown>): RequestEnvelope {
   return { kind: "request", id, method, params };
 }
 
-/**
- * Match an incoming message against a pending request id. Returns the
- * decoded result/error; unknown ids/no envelope are ignored (return `null`).
- *
- * Validates the message through zod (PPI-022/034): malformed shapes do not
- * throw, they simply do not match.
- */
 export type MatchedResponse =
-  | { readonly status: "ok"; readonly result: unknown }
-  | { readonly status: "error"; readonly error: RpcTransportError };
+  | { readonly status: "ok"; readonly id: number; readonly result: unknown }
+  | { readonly status: "error"; readonly id: number; readonly error: RpcTransportError };
 
-export function matchPendingResponse(message: unknown, pendingId: number): MatchedResponse | null {
+/** Parse an inbound message into a matched response (with id), or null if not
+ * a valid envelope. Used by WebviewDataSource to index pending by id. */
+export function parseResponseEnvelope(message: unknown): MatchedResponse | null {
   const parsed = ResponseEnvelopeSchema.safeParse(message);
   if (!parsed.success) {
     return null;
   }
   const env = parsed.data;
-  if (env.id !== pendingId) {
-    return null;
-  }
   if (env.status === "error") {
-    return {
-      status: "error",
-      error: { kind: "rpc", code: env.error.code, message: env.error.message },
-    };
+    return { status: "error", id: env.id, error: { kind: "rpc", code: env.error.code, message: env.error.message } };
   }
-  return { status: "ok", result: env.result };
+  return { status: "ok", id: env.id, result: env.result };
 }
 
 /** Build the HTTP transport error from a `fetch` response (pure). */
@@ -90,25 +65,6 @@ export function httpTransportError(url: string, status: number, detail: string):
 }
 
 /** Build the webview transport error (pure). */
-export function webviewTransportError(reason: WebviewTransportReason, message: string): WebviewTransportError {
+export function webviewTransportError(reason: "timeout", message: string): WebviewTransportError {
   return { kind: "webview", reason, message };
-}
-
-/** Re-raise helper: converts a typed `TransportError` into a thrown error. */
-export function raiseTransportError(error: HttpTransportError | RpcTransportError | WebviewTransportError): never {
-  throw new TransportErrorRaised(error);
-}
-
-/** Convert an unknown thrown value into a typed `TransportError` (PPI-022/034). */
-export function decodeTransportError(thrown: unknown, fallback: { readonly kind: "rpc"; readonly code: string; readonly message: string }): TransportError {
-  if (thrown instanceof TransportErrorRaised) {
-    return thrown.error;
-  }
-  if (thrown instanceof DecodeErrorRaised) {
-    return { kind: "rpc", code: "DECODE", message: `decode failure: ${thrown.error.reason}` };
-  }
-  if (thrown instanceof Error) {
-    return { kind: "rpc", code: fallback.code, message: thrown.message };
-  }
-  return fallback;
 }
