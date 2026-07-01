@@ -21,13 +21,13 @@ from ppi.core.odoo.edge_scoring import (
     score_from_kind_counts,
     score_from_kinds,
 )
-from ppi.core.odoo.facts import EdgeBreakdown, EdgeKindCount
+from ppi.core.odoo.facts import EdgeKindCount, breakdown_from_kind_counts
 from ppi.core.odoo.file_classification import (
     classify_file_by_suffix,
     classify_relative_file,
     is_test_file_by_parts,
 )
-from ppi.core.value_objects import EdgeKind, LineCategory
+from ppi.core.value_objects import EdgeKind, EdgeKindGroup, LineCategory
 
 # --- dist_stats ------------------------------------------------------------
 
@@ -164,11 +164,11 @@ def test_breakdown_from_kind_counts():
         EdgeKindCount(EdgeKind.PYTHON_FIELD_PROPERTY_ACCESS, 1),
     )
     bd = breakdown_from_kind_counts(counts)
-    assert bd.model_reuse == 2
-    assert bd.view == 3
-    assert bd.extension_or_method == 4
-    assert bd.field_property == 1
-    assert bd.total == 10
+    assert bd[EdgeKindGroup.MODEL_REUSE.value] == 2
+    assert bd[EdgeKindGroup.VIEW.value] == 3
+    assert bd[EdgeKindGroup.EXTENSION_OR_METHOD.value] == 4
+    assert bd[EdgeKindGroup.FIELD_PROPERTY.value] == 1
+    assert sum(bd.values()) == 10
 
 
 def test_score_from_kind_counts():
@@ -200,4 +200,10 @@ def test_module_scores_from_edges_unknown_modules_ignored():
 
 
 def test_edge_breakdown_total():
-    assert EdgeBreakdown(model_reuse=1, view=2, extension_or_method=3, field_property=4).total == 10
+    bd = {
+        EdgeKindGroup.MODEL_REUSE.value: 1,
+        EdgeKindGroup.VIEW.value: 2,
+        EdgeKindGroup.EXTENSION_OR_METHOD.value: 3,
+        EdgeKindGroup.FIELD_PROPERTY.value: 4,
+    }
+    assert sum(bd.values()) == 10

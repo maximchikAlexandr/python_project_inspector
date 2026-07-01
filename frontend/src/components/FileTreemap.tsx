@@ -1,38 +1,47 @@
 import { hierarchy, treemap, treemapSquarify } from "d3-hierarchy";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { FileSnapshot } from "../api/client";
-import { type LineCategoryKey } from "../registry/odooProfile";
 import { compactLines } from "../utils/metricFormat";
 import {
   fileTooltip,
   folderColor,
-  isFileSnapshot,
   TREEMAP_MIN_TEXT_HEIGHT,
   TREEMAP_MIN_TEXT_WIDTH,
   truncateTreemapText,
   treemapLegendFolders,
 } from "../transforms/treemapTransforms";
 
-type Props = {
-  readonly files: readonly FileSnapshot[];
-  readonly lineCategories: ReadonlySet<LineCategoryKey>;
-  readonly selectedPath: string | null;
-  readonly onSelect: (file: FileSnapshot | null) => void;
-  readonly onHover?: (file: FileSnapshot | null) => void;
+export type TreemapFile = {
+  module_name: string;
+  relative_path: string;
+  line_category_id: string;
+  lines: number;
+  top_folder: string;
+  metrics: Record<string, number>;
+  distributions: Record<string, { median: number; mean: number; count: number; p95: number; max: number }>;
 };
 
-type TreemapRoot = {
-  children: FileSnapshot[];
+type Props = {
+  readonly files: readonly TreemapFile[];
+  readonly lineCategories: ReadonlySet<string>;
+  readonly selectedPath: string | null;
+  readonly onSelect: (file: TreemapFile | null) => void;
+  readonly onHover?: (file: TreemapFile | null) => void;
 };
+
+type TreemapRoot = { children: TreemapFile[] };
 
 type TreemapLeaf = {
-  file: FileSnapshot;
+  file: TreemapFile;
   x0: number;
   x1: number;
   y0: number;
   y1: number;
 };
+
+function isTreemapFile(value: TreemapRoot | TreemapFile): value is TreemapFile {
+  return "relative_path" in value;
+}
 
 export function FileTreemap({ files, lineCategories, selectedPath, onSelect, onHover }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -40,9 +49,7 @@ export function FileTreemap({ files, lineCategories, selectedPath, onSelect, onH
 
   useEffect(() => {
     const element = containerRef.current;
-    if (!element) {
-      return;
-    }
+    if (!element) return;
     const observer = new ResizeObserver(([entry]) => {
       const width = Math.max(320, Math.floor(entry.contentRect.width));
       setSize({ width, height: 560 });
@@ -52,39 +59,23 @@ export function FileTreemap({ files, lineCategories, selectedPath, onSelect, onH
   }, []);
 
   const filtered = useMemo(
-    () =>
-      files.filter((file) => {
-        if (!lineCategories.size) {
-          return false;
-        }
-        return lineCategories.has(file.category as LineCategoryKey);
-      }),
+    () => files.filter((file) => lineCategories.size > 0 && lineCategories.has(file.line_category_id)),
     [files, lineCategories],
   );
 
   const layout = useMemo(() => {
-    if (!filtered.length) {
-      return [] as TreemapLeaf[];
-    }
-    const root = hierarchy<TreemapRoot | FileSnapshot>({ children: filtered })
-      .sum((node) => (isFileSnapshot(node) ? node.lines : 0))
+    if (!filtered.length) return [] as TreemapLeaf[];
+    const root = hierarchy<TreemapRoot | TreemapFile>({ children: filtered })
+      .sum((node) => (isTreemapFile(node) ? node.lines : 0))
       .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
-    return treemap<TreemapRoot | FileSnapshot>()
+    return treemap<TreemapRoot | TreemapFile>()
       .tile(treemapSquarify)
       .size([size.width, size.height])
       .padding(2)(root)
       .leaves()
       .flatMap((leaf) => {
-        if (!isFileSnapshot(leaf.data)) {
-          return [];
-        }
-        return [{
-          file: leaf.data,
-          x0: leaf.x0,
-          x1: leaf.x1,
-          y0: leaf.y0,
-          y1: leaf.y1,
-        }];
+        if (!isTreemapFile(leaf.data)) return [];
+        return [{ file: leaf.data, x0: leaf.x0, x1: leaf.x1, y0: leaf.y0, y1: leaf.y1 }];
       });
   }, [filtered, size.height, size.width]);
 
@@ -103,15 +94,7 @@ export function FileTreemap({ files, lineCategories, selectedPath, onSelect, onH
       <div style={{ display: "flex", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
         {legend.map((folder) => (
           <span key={folder} style={{ fontSize: 12 }}>
-            <span
-              style={{
-                display: "inline-block",
-                width: 12,
-                height: 12,
-                background: folderColor(folder),
-                marginRight: 4,
-              }}
-            />
+            <span style={{ display: "inline-block", width: 12, height: 12, background: folderColor(folder), marginRight: 4 }} />
             {folder}
           </span>
         ))}
@@ -154,27 +137,12 @@ export function FileTreemap({ files, lineCategories, selectedPath, onSelect, onH
               {innerW >= TREEMAP_MIN_TEXT_WIDTH && innerH >= TREEMAP_MIN_TEXT_HEIGHT ? (
                 <>
                   {displayName ? (
-                    <text
-                      x={centerX - leaf.x0}
-                      y={displayLines ? centerY - leaf.y0 - 2 : centerY - leaf.y0 + 4}
-                      textAnchor="middle"
-                      fontSize={12}
-                      fontWeight={600}
-                      fill="#ffffff"
-                      pointerEvents="none"
-                    >
+                    <text x={centerX - leaf.x0} y={displayLines ? centerY - leaf.y0 - 2 : centerY - leaf.y0 + 4} textAnchor="middle" fontSize={12} fontWeight={600} fill="#ffffff" pointerEvents="none">
                       {displayName}
                     </text>
                   ) : null}
                   {displayLines ? (
-                    <text
-                      x={centerX - leaf.x0}
-                      y={displayName ? centerY - leaf.y0 + 14 : centerY - leaf.y0 + 4}
-                      textAnchor="middle"
-                      fontSize={12}
-                      fill="#ffffff"
-                      pointerEvents="none"
-                    >
+                    <text x={centerX - leaf.x0} y={displayName ? centerY - leaf.y0 + 14 : centerY - leaf.y0 + 4} textAnchor="middle" fontSize={12} fill="#ffffff" pointerEvents="none">
                       {displayLines}
                     </text>
                   ) : null}

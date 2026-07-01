@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 
 import type { CommitRow } from "../api/client";
 import { t } from "../i18n";
-import type { GraphBreakdownKind } from "../registry/odooProfile";
+
 import { GraphLegend } from "./GraphLegend";
 import type { GraphStats } from "./graphSelectors";
 import type {
@@ -49,7 +49,7 @@ type Props = {
   readonly onClearFocus: () => void;
   readonly onPinSelected: () => void;
   readonly stats: GraphStats;
-  readonly edgeKindMeta: ReadonlyArray<{ key: GraphBreakdownKind; label: string; color: string }>;
+  readonly edgeKindMeta: ReadonlyArray<{ key: string; label: string; color: string }>;
   readonly maxEffectiveScore: number;
   readonly selectedModule: string | null;
   readonly commits: readonly CommitRow[];
@@ -63,21 +63,6 @@ type Props = {
 };
 
 const SECTION_KEYS: GraphSectionKey[] = ["filters", "display", "forces", "focus", "stats"];
-
-function edgeKindLabel(key: GraphBreakdownKind, fallback: string): string {
-  switch (key) {
-    case "model_reuse":
-      return t("graph.edgeKind.modelReuse", "Model reuse");
-    case "extension_or_method":
-      return t("graph.edgeKind.extensionOrMethod", "Extension / method");
-    case "view":
-      return t("graph.edgeKind.view", "View");
-    case "field_property":
-      return t("graph.edgeKind.fieldProperty", "Field / property");
-    default:
-      return fallback;
-  }
-}
 
 function sectionValue(expanded: Record<GraphSectionKey, boolean>): string[] {
   return SECTION_KEYS.filter((key) => expanded[key]);
@@ -153,7 +138,7 @@ function PanelBody({
               {edgeKindMeta.map(({ key, label }) => (
                 <Switch
                   key={key}
-                  label={edgeKindLabel(key, label)}
+                  label={label}
                   checked={settings.filter.enabledEdgeKinds[key]}
                   onChange={(event) =>
                     onFilterChange({

@@ -6,7 +6,7 @@
 import { describe, it, expect } from "vitest";
 
 import type { GraphEdge, GraphNode } from "../api/client";
-import { GRAPH_EDGE_KIND_KEYS } from "../registry/odooProfile";
+
 import type { GraphFilterState } from "./graphSettingsTypes";
 import {
   applyGraphFilters,
@@ -44,8 +44,9 @@ function edge(source: string, target: string, score: number, reuse = 1, ext = 0)
   };
 }
 
+const BREAKDOWN_KINDS = ["model_reuse", "extension_or_method", "view", "field_property"];
 const ALL_KINDS: Readonly<Record<string, boolean>> = Object.fromEntries(
-  GRAPH_EDGE_KIND_KEYS.map((k) => [k, true]),
+  BREAKDOWN_KINDS.map((k) => [k, true]),
 );
 
 const FILTER: GraphFilterState = {
@@ -65,7 +66,7 @@ describe("computeEdgeVisibleScore", () => {
 
   it("ignores disabled kinds", () => {
     const none: Readonly<Record<string, boolean>> = Object.fromEntries(
-      GRAPH_EDGE_KIND_KEYS.map((k) => [k, false]),
+      BREAKDOWN_KINDS.map((k) => [k, false]),
     );
     expect(computeEdgeVisibleScore(edge("a", "b", 5, 2, 3), none)).toBe(0);
   });
@@ -74,7 +75,7 @@ describe("computeEdgeVisibleScore", () => {
 describe("applyGraphFilters", () => {
   it("returns noKindsSelected when all kinds disabled", () => {
     const none: Readonly<Record<string, boolean>> = Object.fromEntries(
-      GRAPH_EDGE_KIND_KEYS.map((k) => [k, false]),
+      BREAKDOWN_KINDS.map((k) => [k, false]),
     );
     const result = applyGraphFilters([node("a")], [edge("a", "b", 1)], { ...FILTER, enabledEdgeKinds: none });
     expect(result.noKindsSelected).toBe(true);

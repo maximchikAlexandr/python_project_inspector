@@ -15,7 +15,6 @@ from pathlib import Path
 
 from ppi.query.dispatch import ALL_METHODS
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _TS_FILE = _REPO_ROOT / "vscode-extension" / "src" / "webviewPanel.ts"
 

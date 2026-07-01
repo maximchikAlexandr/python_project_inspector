@@ -1,15 +1,7 @@
 import { clamp, filter, map, sumBy } from "remeda";
 
 import type { GraphEdge, GraphNode } from "../api/client";
-import {
-  GRAPH_EDGE_KIND_KEYS,
-  MAX_NODE_RADIUS,
-  MIN_NODE_RADIUS,
-  NEUTRAL_NODE_RADIUS,
-  lineCategoryTotal,
-  type GraphEdgeKind,
-  type LineCategoryKey,
-} from "../registry/odooProfile";
+import { MAX_NODE_RADIUS, MIN_NODE_RADIUS, NEUTRAL_NODE_RADIUS, lineCategoryTotal } from "../registry/odooProfile";
 import type { GraphDisplayState, GraphFilterState } from "./graphSettingsTypes";
 import { edgeStrokeWidth } from "./graphViewPure";
 
@@ -53,11 +45,11 @@ export type GraphEdgeViewModel = {
 
 export function computeEdgeVisibleScore(
   edge: GraphEdge,
-  enabledEdgeKinds: Readonly<Record<GraphEdgeKind, boolean>>,
+  enabledEdgeKinds: Readonly<Record<string, boolean>>,
 ): number {
   return sumBy(
-    GRAPH_EDGE_KIND_KEYS.filter((kind) => enabledEdgeKinds[kind]),
-    (kind) => edge.breakdown[kind] ?? 0,
+    Object.keys(edge.breakdown ?? {}).filter((kind) => enabledEdgeKinds[kind]),
+    (kind) => edge.breakdown?.[kind] ?? 0,
   );
 }
 
@@ -200,8 +192,8 @@ export function applyGraphFilters(
 
 function nodeMetricValue(
   node: GraphNode,
-  metric: GraphDisplayState["nodeSizeMetric"],
-  lineCategories: ReadonlySet<LineCategoryKey>,
+  metric: string,
+  lineCategories: ReadonlySet<string>,
 ): number {
   if (metric === "visible_lines") {
     return lineCategoryTotal(node.line_categories, lineCategories);
@@ -209,22 +201,17 @@ function nodeMetricValue(
   if (metric === "total_lines") {
     return sumBy(Object.values(node.line_categories), (value) => value ?? 0);
   }
-  if (metric === "method_count") {
-    return node.method_count;
+  if (metric === "fixed") {
+    return 1;
   }
-  if (metric === "score_in") {
-    return node.score_in;
-  }
-  if (metric === "score_out") {
-    return node.score_out;
-  }
-  return 1;
+  const m = node.metrics ?? {};
+  return m[metric] ?? 0;
 }
 
 export function maxNodeMetric(
   nodes: ReadonlyArray<GraphNode>,
-  metric: GraphDisplayState["nodeSizeMetric"],
-  lineCategories: ReadonlySet<LineCategoryKey>,
+  metric: string,
+  lineCategories: ReadonlySet<string>,
 ): number {
   if (!nodes.length) {
     return 1;
@@ -240,7 +227,7 @@ export function computeNodeDisplay(
     readonly brightnessRatio: number;
     readonly selected: boolean;
     readonly hovered: boolean;
-    readonly lineCategories: ReadonlySet<LineCategoryKey>;
+    readonly lineCategories: ReadonlySet<string>;
     readonly fill: string;
     readonly stroke: string;
     readonly zoomScale: number;
@@ -271,10 +258,10 @@ export function computeNodeDisplay(
     label,
     badges: display.showNodeBadges
       ? {
-          in: node.score_in,
-          out: node.score_out,
-          files: node.python_file_count,
-          methods: node.method_count,
+          in: node.metrics?.score_in ?? 0,
+          out: node.metrics?.score_out ?? 0,
+          files: node.metrics?.python_file_count ?? 0,
+          methods: node.metrics?.method_count ?? 0,
         }
       : null,
   };
@@ -286,7 +273,7 @@ function edgeThicknessMetric(
   visibleScore: number,
 ): number {
   if (display.linkThicknessMetric === "total_points") {
-    return edge.breakdown.total;
+    return edge.breakdown?.total ?? 0;
   }
   if (display.linkThicknessMetric === "selected_kind_points") {
     return visibleScore;
@@ -300,7 +287,7 @@ function edgeThicknessMetric(
 export function maxLinkThicknessMetric(
   edges: ReadonlyArray<GraphEdge>,
   display: GraphDisplayState,
-  enabledEdgeKinds: Readonly<Record<GraphEdgeKind, boolean>>,
+  enabledEdgeKinds: Readonly<Record<string, boolean>>,
 ): number {
   if (!edges.length) {
     return 1;
@@ -338,7 +325,7 @@ function computeEdgeDisplay(
 export function buildGraphEdgeViews(
   edges: ReadonlyArray<GraphEdge>,
   display: GraphDisplayState,
-  enabledEdgeKinds: Readonly<Record<GraphEdgeKind, boolean>>,
+  enabledEdgeKinds: Readonly<Record<string, boolean>>,
   maxThicknessMetric: number,
 ): GraphEdgeViewModel[] {
   const edgeKeys = new Set(edges.map((edge) => `${edge.source}|${edge.target}`));
@@ -359,7 +346,7 @@ export function buildGraphEdgeViews(
   });
 }
 
-export function maxEffectiveEdgeScore(edges: ReadonlyArray<GraphEdge>, enabledKinds: Readonly<Record<GraphEdgeKind, boolean>>): number {
+export function maxEffectiveEdgeScore(edges: ReadonlyArray<GraphEdge>, enabledKinds: Readonly<Record<string, boolean>>): number {
   if (!edges.length) {
     return 0;
   }

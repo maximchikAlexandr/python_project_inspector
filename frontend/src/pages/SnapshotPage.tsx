@@ -3,49 +3,36 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   fetchCommits,
-  fetchFailures,
   fetchGraph,
-  fetchSnapshotFiles,
-  fetchSnapshotModules,
-  fetchStatus,
+  fetchSnapshotRelations,
+  fetchSnapshotTableFiles,
+  fetchSnapshotTableModules,
+  fetchUiConfig,
   type CommitRow,
-  type EdgeRow,
-  type FailureRow,
-  type FileSnapshot,
+  type GenericTableResponse,
   type GraphEdge,
   type GraphNode,
-  type ModuleSnapshot,
+  type RelationsResponse,
 } from "../api/client";
+import type { UiConfigResponse } from "../api/client";
 import { BrightnessToolbar } from "../components/BrightnessToolbar";
 import { FileDetailPanel } from "../components/FileDetailPanel";
 import { FileTreemap } from "../components/FileTreemap";
 import { GraphSettingsPanel } from "../components/GraphSettingsPanel";
 import { LineCategoryToolbar } from "../components/LineCategoryToolbar";
-import { ManifestDependsView } from "../components/ManifestDependsView";
 import { ModuleDetailPanel } from "../components/ModuleDetailPanel";
 import { ModuleGraph } from "../components/ModuleGraph";
-import { ParseFailureView } from "../components/ParseFailureView";
 import { VisibleLinesSummary } from "../components/VisibleLinesSummary";
-import { EdgePointsTable, FileComplexityTable, ModuleLinesTable } from "../components/ReportTables";
+import { RelationsTable, SnapshotEntityTable } from "../components/ReportTables";
+import type { TreemapFile } from "../components/FileTreemap";
 import { t } from "../i18n";
 import { useSnapshotGraphExplorer } from "../components/useSnapshotGraphExplorer";
 import { useAppNavigation } from "../navigation";
-import {
-  type BrightnessCriterion,
-  DEFAULT_BRIGHTNESS_CRITERIA,
-  DEFAULT_LINE_CATEGORIES,
-  type LineCategoryKey,
-  LINE_CATEGORIES,
-  lineCategoryTotal,
-  moduleCouplingStats,
-} from "../registry/odooProfile";
+import { lineCategoryTotal } from "../registry/odooProfile";
 import { toCommitSelectOptions } from "../transforms/commitOptions";
 import {
-  graphEdgesToRows,
-  moduleOptionsFromModules,
   resolveGraphSelection,
   resolveProjectStorageKey,
-  visibleLinesTotal,
 } from "../transforms/snapshotTransforms";
 import { formatCodeLines } from "../utils/metricFormat";
 
@@ -64,53 +51,30 @@ function LoadingPanel({ label }: { label: string }) {
   );
 }
 
-function lineCategoryLabel(key: LineCategoryKey, fallback: string): string {
-  switch (key) {
-    case "python_lines":
-      return t("lineCategory.pythonCode", "Python code");
-    case "js_lines":
-      return t("lineCategory.js", "JS");
-    case "python_test_lines":
-      return t("lineCategory.pythonTest", "Python test");
-    case "xml_lines":
-      return t("lineCategory.xmlView", "XML view");
-    case "css_lines":
-      return t("lineCategory.css", "CSS");
-    case "html_lines":
-      return t("lineCategory.html", "HTML");
-    default:
-      return fallback;
-  }
-}
-
 export function SnapshotPage() {
   const { pendingSnapshot, clearPendingSnapshot } = useAppNavigation();
   const [commits, setCommits] = useState<readonly CommitRow[]>([]);
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
-  const [modules, setModules] = useState<readonly ModuleSnapshot[]>([]);
-  const [files, setFiles] = useState<readonly FileSnapshot[]>([]);
+  const [modulesTable, setModulesTable] = useState<GenericTableResponse | null>(null);
+  const [filesTable, setFilesTable] = useState<GenericTableResponse | null>(null);
+  const [relationsData, setRelationsData] = useState<RelationsResponse | null>(null);
   const [graphNodes, setGraphNodes] = useState<readonly GraphNode[]>([]);
   const [graphEdges, setGraphEdges] = useState<readonly GraphEdge[]>([]);
-  const [fullEdges, setFullEdges] = useState<readonly EdgeRow[]>([]);
-  const [failures, setFailures] = useState<readonly FailureRow[]>([]);
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<FileSnapshot | null>(null);
-  const [hoveredFile, setHoveredFile] = useState<FileSnapshot | null>(null);
-  const [lineCategories, setLineCategories] = useState<Set<LineCategoryKey>>(
-    () => new Set(DEFAULT_LINE_CATEGORIES),
-  );
-  const [brightness, setBrightness] = useState<Set<BrightnessCriterion>>(
-    () => new Set(DEFAULT_BRIGHTNESS_CRITERIA),
-  );
+  const [selectedFile, setSelectedFile] = useState<TreemapFile | null>(null);
+  const [hoveredFile, setHoveredFile] = useState<TreemapFile | null>(null);
+  const [lineCategories, setLineCategories] = useState<Set<string>>(new Set());
+  const [brightness, setBrightness] = useState<Set<string>>(new Set());
   const [loadingCommits, setLoadingCommits] = useState(true);
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
   const [loadingGraph, setLoadingGraph] = useState(false);
   const [openSections, setOpenSections] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [focusNotice, setFocusNotice] = useState<string | null>(null);
-  const [projectKey, setProjectKey] = useState<string | null>(() =>
+  const [projectKey] = useState<string | null>(() =>
     resolveProjectStorageKey(null, null, window.location.origin + window.location.pathname),
   );
+  const [uiConfig, setUiConfig] = useState<UiConfigResponse | null>(null);
 
   const snapshotGeneration = useRef(0);
   const graphGeneration = useRef(0);
@@ -144,44 +108,67 @@ export function SnapshotPage() {
     settings,
   } = graphExplorer;
 
-  const moduleFiles = useMemo(
-    () => (selectedModule ? files.filter((file) => file.module_name === selectedModule) : []),
-    [files, selectedModule],
-  );
-
-  const moduleDetail = useMemo(
-    () => modules.find((module) => module.module_name === selectedModule) ?? null,
-    [modules, selectedModule],
-  );
-
-  const selectedCouplingStats = useMemo(
-    () =>
-      selectedModule && fullEdges.length ? moduleCouplingStats(selectedModule, fullEdges) : null,
-    [fullEdges, selectedModule],
-  );
-
   const linesTotal = useMemo(
-    () => visibleLinesTotal(modules, lineCategories),
-    [lineCategories, modules],
+    () => {
+      if (!modulesTable) return 0;
+      let total = 0;
+      for (const row of modulesTable.rows) {
+        const counts = (row.cells.line_counts ?? row.cells.line_categories ?? {}) as Record<string, number>;
+        for (const cat of lineCategories) {
+          total += counts[cat] ?? 0;
+        }
+      }
+      return total;
+    },
+    [lineCategories, modulesTable],
   );
 
   const selectedCategoryLabels = useMemo(
     () =>
-      LINE_CATEGORIES.filter(({ key }) => lineCategories.has(key)).map(({ key, label }) =>
-        lineCategoryLabel(key, label),
-      ),
-    [lineCategories],
+      (uiConfig?.graph.line_categories ?? [])
+        .filter((o) => lineCategories.has(o.id))
+        .map((o) => o.label),
+    [lineCategories, uiConfig],
   );
 
-  const moduleOptions = useMemo(() => moduleOptionsFromModules(modules), [modules]);
-
-  const activeFile = selectedFile ?? hoveredFile;
+  const moduleDetail = useMemo(() => {
+    if (!modulesTable || !selectedModule) return null;
+    const row = modulesTable.rows.find((r) => r.cells.module_name === selectedModule);
+    if (!row) return null;
+    return row.cells;
+  }, [modulesTable, selectedModule]);
 
   const moduleVisibleLines = useMemo(
     () =>
-      moduleDetail ? lineCategoryTotal(moduleDetail.line_categories, lineCategories) : 0,
+      moduleDetail ? lineCategoryTotal(
+        (moduleDetail.line_counts ?? moduleDetail.line_categories ?? {}) as Record<string, number>,
+        lineCategories,
+      ) : 0,
     [lineCategories, moduleDetail],
   );
+
+  const moduleFiles = useMemo(() => {
+    if (!filesTable || !selectedModule) return [];
+    return filesTable.rows
+      .filter((r) => r.cells.module_name === selectedModule)
+      .map((r) => {
+        const cells = r.cells;
+        const relativePath = String(cells.relative_path ?? "");
+        const metrics = (cells.metrics ?? {}) as Record<string, number>;
+        const parts = relativePath.split("/");
+        return {
+          module_name: selectedModule,
+          relative_path: relativePath,
+          line_category_id: String(cells.line_category_id ?? ""),
+          lines: Number(metrics.lines ?? metrics.total_lines ?? cells.total_lines ?? 0),
+          top_folder: parts.length > 1 ? parts[0] : ".",
+          metrics,
+          distributions: (cells.distributions ?? {}) as Record<string, { median: number; mean: number; count: number; p95: number; max: number }>,
+        } satisfies TreemapFile;
+      });
+  }, [filesTable, selectedModule]);
+
+  const activeFile = selectedFile ?? hoveredFile;
 
   useEffect(() => {
     if (!pendingSnapshot) {
@@ -195,18 +182,22 @@ export function SnapshotPage() {
   }, [clearPendingSnapshot, pendingSnapshot]);
 
   useEffect(() => {
-    fetchStatus()
-      .then((status) => {
-        setProjectKey(
-          resolveProjectStorageKey(
-            status.project_id,
-            status.scope?.repo_path ?? null,
-            window.location.origin + window.location.pathname,
-          ),
-        );
-      })
-      .catch(() => undefined);
+    fetchUiConfig().then(setUiConfig).catch(() => setUiConfig(null));
   }, []);
+
+  useEffect(() => {
+    if (uiConfig) {
+      const defaults = uiConfig.graph.line_categories.filter((o) => o.default_enabled).map((o) => o.id);
+      setLineCategories(new Set(defaults));
+    }
+  }, [uiConfig]);
+
+  useEffect(() => {
+    if (uiConfig) {
+      const defaults = uiConfig.graph.brightness_metrics.filter((o) => o.default_enabled).map((o) => o.id);
+      setBrightness(new Set(defaults));
+    }
+  }, [uiConfig]);
 
   useEffect(() => {
     setLoadingCommits(true);
@@ -227,28 +218,27 @@ export function SnapshotPage() {
     snapshotGeneration.current = generation;
     setSelectedFile(null);
     setHoveredFile(null);
-    setModules([]);
-    setFiles([]);
-    setFailures([]);
+    setModulesTable(null);
+    setFilesTable(null);
+    setRelationsData(null);
     setGraphNodes([]);
     setGraphEdges([]);
-    setFullEdges([]);
     setFocusNotice(null);
     resetLayoutState();
     setLoadingSnapshot(true);
     setError(null);
     Promise.all([
-      fetchSnapshotModules(selectedCommit),
-      fetchSnapshotFiles(selectedCommit),
-      fetchFailures(selectedCommit),
+      fetchSnapshotTableModules(selectedCommit),
+      fetchSnapshotTableFiles(selectedCommit),
+      fetchSnapshotRelations(selectedCommit),
     ])
-      .then(([modulePayload, filePayload, failurePayload]) => {
+      .then(([modules, files, relations]) => {
         if (generation !== snapshotGeneration.current) {
           return;
         }
-        setModules(modulePayload.modules);
-        setFiles(filePayload.files);
-        setFailures(failurePayload.failures);
+        setModulesTable(modules);
+        setFilesTable(files);
+        setRelationsData(relations);
       })
       .catch((err: Error) => {
         if (generation === snapshotGeneration.current) {
@@ -270,7 +260,6 @@ export function SnapshotPage() {
     graphGeneration.current = generation;
     setGraphNodes([]);
     setGraphEdges([]);
-    setFullEdges([]);
     setLoadingGraph(true);
     setError(null);
     fetchGraph(selectedCommit, settings.filter.includeZeroScore)
@@ -280,7 +269,6 @@ export function SnapshotPage() {
         }
         setGraphNodes(graphPayload.nodes);
         setGraphEdges(graphPayload.edges);
-        setFullEdges(graphEdgesToRows(graphPayload.edges, graphPayload.commit_hash));
         const selection = resolveGraphSelection(graphPayload.nodes, focusModuleRef.current);
         setSelectedModule(selection.selectedModule);
         if (selection.clearFocus) {
@@ -304,7 +292,7 @@ export function SnapshotPage() {
 
   return (
     <Stack gap="md">
-      <Title order={3}>{t("snapshot.title", "Odoo report snapshot")}</Title>
+      <Title order={3}>{t("snapshot.title", "Report snapshot")}</Title>
       {error ? <Text c="red">{error}</Text> : null}
       {focusNotice ? (
         <Text size="sm" c="orange">
@@ -359,17 +347,14 @@ export function SnapshotPage() {
               emptyNotice={emptyNotice}
               initialLayout={graphPanelProps.initialLayout}
             />
-            <LineCategoryToolbar active={lineCategories} onChange={setLineCategories} />
-            <BrightnessToolbar active={brightness} onChange={setBrightness} />
-            {loadingSnapshot && selectedModule && !moduleDetail ? (
-              <LoadingPanel label={t("snapshot.loading.moduleDetails", "Loading module details...")} />
-            ) : (
-              <ModuleDetailPanel
-                module={moduleDetail}
-                brightnessCriteria={brightness}
-                couplingStats={selectedCouplingStats}
-              />
-            )}
+            <LineCategoryToolbar active={lineCategories} onChange={setLineCategories} options={uiConfig?.graph.line_categories ?? []} />
+            <BrightnessToolbar active={brightness} onChange={setBrightness} options={uiConfig?.graph.brightness_metrics ?? []} />
+            <ModuleDetailPanel
+              module={moduleDetail}
+              brightnessCriteria={brightness}
+              metricOptions={uiConfig?.graph.brightness_metrics ?? []}
+              lineCategoryOptions={uiConfig?.graph.line_categories ?? []}
+            />
           </Stack>
           <GraphSettingsPanel
             settings={settings}
@@ -447,54 +432,27 @@ export function SnapshotPage() {
           <Accordion.Panel>
             {loadingSnapshot ? (
               <LoadingPanel label={t("snapshot.loading.moduleLines", "Loading module lines...")} />
-            ) : (
-              <ModuleLinesTable modules={modules} />
-            )}
-          </Accordion.Panel>
-        </Accordion.Item>
-        <Accordion.Item value="complexity">
-          <Accordion.Control>{t("snapshot.sections.fileComplexity", "Python file complexity")}</Accordion.Control>
-          <Accordion.Panel>
-            {loadingSnapshot ? (
-              <LoadingPanel label={t("snapshot.loading.fileComplexity", "Loading file complexity...")} />
-            ) : (
-              <FileComplexityTable files={files} />
-            )}
-          </Accordion.Panel>
-        </Accordion.Item>
-        <Accordion.Item value="edges">
-          <Accordion.Control>{t("snapshot.sections.edgePoints", "Graph edge points")}</Accordion.Control>
-          <Accordion.Panel>
-            {loadingGraph ? (
-              <LoadingPanel label={t("snapshot.loading.edgePoints", "Loading edge points...")} />
-            ) : selectedCommit ? (
-              <EdgePointsTable
-                edges={fullEdges}
-                commit={selectedCommit}
-                includeZeroScore={settings.filter.includeZeroScore}
-                moduleOptions={moduleOptions}
+            ) : modulesTable ? (
+              <SnapshotEntityTable
+                rows={modulesTable.rows}
+                columns={uiConfig?.tables.find((tbl) => tbl.key === "modules")?.columns ?? []}
+                filesTable={filesTable}
+                fileColumns={uiConfig?.tables.find((tbl) => tbl.key === "files")?.columns ?? []}
               />
             ) : null}
           </Accordion.Panel>
         </Accordion.Item>
-        <Accordion.Item value="manifest">
-          <Accordion.Control>{t("snapshot.sections.manifestDepends", "Manifest depends")}</Accordion.Control>
+        <Accordion.Item value="relations">
+          <Accordion.Control>{t("snapshot.sections.relations", "Relations")}</Accordion.Control>
           <Accordion.Panel>
             {loadingSnapshot ? (
-              <LoadingPanel label={t("snapshot.loading.manifest", "Loading manifest data...")} />
-            ) : (
-              <ManifestDependsView modules={modules} />
-            )}
-          </Accordion.Panel>
-        </Accordion.Item>
-        <Accordion.Item value="failures">
-          <Accordion.Control>{t("snapshot.sections.parseFailures", "Parse failures")}</Accordion.Control>
-          <Accordion.Panel>
-            {loadingSnapshot ? (
-              <LoadingPanel label={t("snapshot.loading.parseFailures", "Loading parse failures...")} />
-            ) : (
-              <ParseFailureView failures={failures} />
-            )}
+              <LoadingPanel label={t("snapshot.loading.relations", "Loading relations...")} />
+            ) : relationsData ? (
+              <RelationsTable
+                relations={relationsData.relations}
+                columns={uiConfig?.tables.find((tbl) => tbl.key === "relations")?.columns ?? []}
+              />
+            ) : null}
           </Accordion.Panel>
         </Accordion.Item>
       </Accordion>

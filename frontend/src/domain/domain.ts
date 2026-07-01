@@ -1,46 +1,6 @@
 /**
  * Typed domain enums and value objects shared across the frontend (PPI-039/040).
- *
- * Mirrors the Python `EdgeKind`/`LineCategory` StrEnums from
- * `src/ppi/core/value_objects.py`. String conversion happens only at the
- * serialization/API boundary; everywhere else code carries the typed union so
- * a typo is a compile error, not a silent miss.
  */
-
-/** All coupling edge kinds emitted by the Odoo/Python/XML/security analysis. */
-export type EdgeKind =
-  | "python__inherit"
-  | "python_method_call"
-  | "python_private_method_call"
-  | "python_many2one"
-  | "python_one2many"
-  | "python_many2many"
-  | "python_related"
-  | "python_api_depends"
-  | "python_api_onchange"
-  | "python_api_constrains"
-  | "python_env_model"
-  | "python_field_property_access"
-  | "security_ir_rule_model_ref"
-  | "security_ir_rule_ref"
-  | "security_xml_ref"
-  | "security_csv_ref"
-  | "xml_inherit_id"
-  | "xml_ref"
-  | "xml_percent_ref"
-  | "manifest_depends";
-
-/** Edge kind groups used by the graph breakdown (subset that scores). */
-export type GraphBreakdownKind = "model_reuse" | "extension_or_method" | "view" | "field_property";
-
-/** Line-count categories tracked per module. */
-export type LineCategory =
-  | "python_lines"
-  | "js_lines"
-  | "python_test_lines"
-  | "xml_lines"
-  | "css_lines"
-  | "html_lines";
 
 /** Structured parse/analysis failure (PPI-040) — replaces `string | null`. */
 export interface ParseFailure {

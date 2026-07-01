@@ -1,33 +1,15 @@
 import { Checkbox, Group, Paper, Stack, Text } from "@mantine/core";
 
 import { t } from "../i18n";
-import { BRIGHTNESS_CRITERIA, type BrightnessCriterion } from "../registry/odooProfile";
+import type { UiMetricOption } from "../api/client";
 
 type Props = {
-  readonly active: ReadonlySet<BrightnessCriterion>;
-  readonly onChange: (next: Set<BrightnessCriterion>) => void;
+  readonly options: readonly UiMetricOption[];
+  readonly active: ReadonlySet<string>;
+  readonly onChange: (next: Set<string>) => void;
 };
 
-function brightnessLabel(key: BrightnessCriterion, fallback: string): string {
-  switch (key) {
-    case "cyclomatic_median":
-      return t("brightness.cyclomaticMedian", "Cyclomatic median");
-    case "cognitive_median":
-      return t("brightness.cognitiveMedian", "Cognitive median");
-    case "jones_median":
-      return t("brightness.jonesMedian", "Jones median");
-    case "method_count":
-      return t("brightness.methodCount", "Method count");
-    case "code_lines":
-      return t("brightness.codeLines", "Code lines");
-    case "python_file_count":
-      return t("brightness.pythonFileCount", "Python file count");
-    default:
-      return fallback;
-  }
-}
-
-export function BrightnessToolbar({ active, onChange }: Props) {
+export function BrightnessToolbar({ options, active, onChange }: Props) {
   return (
     <Paper withBorder radius="md" p="sm" style={{ width: "100%" }}>
       <Stack gap="xs">
@@ -36,11 +18,12 @@ export function BrightnessToolbar({ active, onChange }: Props) {
         </Text>
         <Checkbox.Group
           value={[...active]}
-          onChange={(values) => onChange(new Set(values as BrightnessCriterion[]))}
+          onChange={(values) => onChange(new Set(values))}
         >
           <Group gap="md">
-            {BRIGHTNESS_CRITERIA.map(({ key, label }) => (
-              <Checkbox key={key} value={key} label={brightnessLabel(key, label)} />
+            {options.length === 0 && <Text size="xs" c="dimmed">No brightness metrics</Text>}
+            {options.map(({ id, label }) => (
+              <Checkbox key={id} value={id} label={label} />
             ))}
           </Group>
         </Checkbox.Group>

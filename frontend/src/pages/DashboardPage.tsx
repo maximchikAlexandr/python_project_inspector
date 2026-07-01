@@ -1,4 +1,3 @@
-import { LineChart } from "@mantine/charts";
 import {
   Alert,
   Group,
@@ -12,67 +11,68 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  fetchCatalog,
+  fetchCommits,
   fetchHotspots,
+  fetchSnapshotTableModules,
   fetchTimeseries,
+  fetchUiConfig,
   type HotspotItem,
   type TimeseriesPoint,
+  type UiConfigResponse,
 } from "../api/client";
 import { HotspotsTable } from "../components/HotspotsTable";
 import { MetricChart } from "../components/MetricChart";
 import { t } from "../i18n";
 import {
-  categoryChartFromTimeseries,
   normalizeDashboardSelection,
   type DashboardLevel,
   type DashboardTab,
 } from "../transforms/dashboardTransforms";
 
-const COMPLEXITY_METRICS = [
-  { value: "cyclomatic", label: t("metrics.cyclomatic", "Cyclomatic") },
-  { value: "cognitive", label: t("metrics.cognitive", "Cognitive") },
-  { value: "jones", label: t("metrics.jones", "Jones") },
-];
-
-const MODULE_METRICS = [
-  ...COMPLEXITY_METRICS,
-  { value: "python_file_count", label: t("metrics.pythonFileCount", "Python file count") },
-];
-
-const AGGS = [
-  { value: "mean", label: t("aggregation.mean", "Mean") },
-  { value: "median", label: t("aggregation.median", "Median") },
-  { value: "p95", label: t("aggregation.p95", "P95") },
-  { value: "max", label: t("aggregation.max", "Max") },
-];
-
 export function DashboardPage() {
   const [level, setLevel] = useState<DashboardLevel>("module");
-  const [metric, setMetric] = useState("cyclomatic");
+  const [metric, setMetric] = useState("");
   const [agg, setAgg] = useState("mean");
   const [activeTab, setActiveTab] = useState<DashboardTab>("complexity");
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [names, setNames] = useState<readonly string[]>([]);
-  const [complexityPoints, setComplexityPoints] = useState<readonly TimeseriesPoint[]>([]);
-  const [sizePoints, setSizePoints] = useState<readonly TimeseriesPoint[]>([]);
-  const [categoryChart, setCategoryChart] = useState<readonly Record<string, number | string>[]>([]);
-  const [categorySeries, setCategorySeries] = useState<readonly { name: string; label: string; color: string }[]>([]);
+  const [points, setPoints] = useState<readonly TimeseriesPoint[]>([]);
   const [valueHotspots, setValueHotspots] = useState<readonly HotspotItem[]>([]);
   const [growthHotspots, setGrowthHotspots] = useState<readonly HotspotItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [uiConfig, setUiConfig] = useState<UiConfigResponse | null>(null);
   const hotspotsGeneration = useRef(0);
   const seriesGeneration = useRef(0);
 
-  const metricOptions = level === "module" ? MODULE_METRICS : COMPLEXITY_METRICS;
-  const hotspotAgg = metric === "python_file_count" ? "mean" : agg;
+  const metricOptions = uiConfig?.dashboard_metrics ?? [];
+  const aggOptions = uiConfig?.aggregations ?? [];
 
   const nameOptions = useMemo(() => names.map((name) => ({ value: name, label: name })), [names]);
 
   useEffect(() => {
-    fetchCatalog(level)
-      .then((payload) => setNames(payload.names))
+    fetchUiConfig().then(setUiConfig).catch(() => setUiConfig(null));
+  }, []);
+
+  useEffect(() => {
+    if (metricOptions.length && !metric) {
+      setMetric(metricOptions[0].id);
+    }
+  }, [metric, metricOptions]);
+
+  useEffect(() => {
+    fetchCommits()
+      .then((rows) => {
+        const lastCommit = rows[rows.length - 1]?.commit_hash;
+        if (lastCommit) {
+          fetchSnapshotTableModules(lastCommit)
+            .then((payload) => {
+              setNames(payload.rows.map((r) => String(r.cells.module_name)));
+            })
+            .catch(() => setNames([]));
+        }
+      })
       .catch((err: Error) => setError(err.message));
-  }, [level]);
+  }, []);
 
   useEffect(() => {
     if (!names.length) {
@@ -103,15 +103,13 @@ export function DashboardPage() {
   }
 
   useEffect(() => {
-    if (level === "file" && metric === "python_file_count") {
-      return;
-    }
+    if (!metric) return;
     const generation = hotspotsGeneration.current + 1;
     hotspotsGeneration.current = generation;
     setError(null);
     Promise.all([
-      fetchHotspots({ level, metric, by: "value", limit: 20, agg: hotspotAgg }),
-      fetchHotspots({ level, metric, by: "growth", limit: 20, agg: hotspotAgg }),
+      fetchHotspots({ level, metric_id: metric, by: "value", limit: 20, agg }),
+      fetchHotspots({ level, metric_id: metric, by: "growth", limit: 20, agg }),
     ])
       .then(([byValue, byGrowth]) => {
         if (generation !== hotspotsGeneration.current) {
@@ -125,45 +123,21 @@ export function DashboardPage() {
           setError(err.message);
         }
       });
-  }, [hotspotAgg, level, metric]);
+  }, [agg, level, metric]);
 
   useEffect(() => {
-    if (level === "file" && metric === "python_file_count") {
-      return;
-    }
-    if (!selectedName || !names.includes(selectedName)) {
+    if (!metric || !selectedName || !names.includes(selectedName)) {
       return;
     }
     const generation = seriesGeneration.current + 1;
     seriesGeneration.current = generation;
     setError(null);
-    const requests = [
-      fetchTimeseries({
-        level,
-        metric,
-        name: selectedName,
-        agg: metric === "python_file_count" ? undefined : agg,
-      }),
-      fetchTimeseries({ level, metric: "lines", name: selectedName }),
-    ];
-    if (level === "module") {
-      requests.push(fetchTimeseries({ level: "module", metric: "lines_by_category", name: selectedName }));
-    }
-    Promise.all(requests)
-      .then(([complexity, size, categories]) => {
+    fetchTimeseries({ level, metric_id: metric, name: selectedName, agg })
+      .then((response) => {
         if (generation !== seriesGeneration.current) {
           return;
         }
-        setComplexityPoints(complexity.series[0]?.points ?? []);
-        setSizePoints(size.series[0]?.points ?? []);
-        if (categories) {
-          const shaped = categoryChartFromTimeseries(categories);
-          setCategoryChart(shaped.chartRows);
-          setCategorySeries(shaped.series);
-        } else {
-          setCategoryChart([]);
-          setCategorySeries([]);
-        }
+        setPoints(response.series[0]?.points ?? []);
       })
       .catch((err: Error) => {
         if (generation === seriesGeneration.current) {
@@ -198,59 +172,37 @@ export function DashboardPage() {
         />
         <Select
           label={t("dashboard.metric", "Metric")}
-          data={metricOptions}
+          data={metricOptions.map((m) => ({ value: m.id, label: m.label }))}
           value={metric}
-          onChange={(value) => setMetric(value ?? "cyclomatic")}
+          onChange={(value) => setMetric(value ?? metricOptions[0]?.id ?? "")}
           w={180}
         />
-        {metric !== "python_file_count" ? (
-          <Select
-            label={t("dashboard.aggregation", "Aggregation")}
-            data={AGGS}
-            value={agg}
-            onChange={(value) => setAgg(value ?? "mean")}
-            w={140}
-          />
-        ) : null}
+        <Select
+          label={t("dashboard.aggregation", "Aggregation")}
+          data={aggOptions.map((a) => ({ value: a.id, label: a.label }))}
+          value={agg}
+          onChange={(value) => setAgg(value ?? "mean")}
+          w={140}
+        />
       </Group>
 
       <Tabs value={activeTab} onChange={(value) => setActiveTab((value as DashboardTab | null) ?? "complexity")}>
         <Tabs.List>
-          <Tabs.Tab value="complexity">{t("dashboard.tabs.complexity", "Complexity over time")}</Tabs.Tab>
-          <Tabs.Tab value="size">{t("dashboard.tabs.size", "Line count history")}</Tabs.Tab>
-          {level === "module" ? <Tabs.Tab value="categories">{t("dashboard.tabs.categories", "Line categories")}</Tabs.Tab> : null}
+          <Tabs.Tab value="complexity">{t("dashboard.tabs.complexity", "Metric over time")}</Tabs.Tab>
           <Tabs.Tab value="hotspots">{t("dashboard.tabs.hotspots", "Hotspots")}</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="complexity" pt="md">
           <MetricChart
-            title={t("dashboard.chart.complexityTitle", "{{metric}}{{agg}} - {{name}}", {
+            title={t("dashboard.chart.complexityTitle", "{{metric}} ({{agg}}) - {{name}}", {
               metric,
-              agg: metric === "python_file_count" ? "" : ` (${agg})`,
+              agg,
               name: selectedName ?? "",
             })}
-            points={complexityPoints}
+            points={points}
             yLabel={metric}
           />
         </Tabs.Panel>
-
-        <Tabs.Panel value="size" pt="md">
-          <MetricChart
-            title={t("dashboard.chart.totalLinesTitle", "Total lines - {{name}}", { name: selectedName ?? "" })}
-            points={sizePoints}
-            yLabel={t("metrics.lines", "lines")}
-          />
-        </Tabs.Panel>
-
-        {level === "module" ? (
-          <Tabs.Panel value="categories" pt="md">
-            {categoryChart.length ? (
-              <LineChart h={280} data={[...categoryChart]} dataKey="order" series={[...categorySeries]} withLegend withTooltip />
-            ) : (
-              <Text c="dimmed">{t("dashboard.empty.categories", "Select a module to load line category history.")}</Text>
-            )}
-          </Tabs.Panel>
-        ) : null}
 
         <Tabs.Panel value="hotspots" pt="md">
           <SimpleGrid cols={{ base: 1, md: 2 }}>

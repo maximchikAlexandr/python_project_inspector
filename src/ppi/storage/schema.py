@@ -6,7 +6,7 @@ from pathlib import Path
 
 import duckdb
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DDL_STATEMENTS = (
     """
@@ -57,27 +57,10 @@ DDL_STATEMENTS = (
         commit_hash VARCHAR NOT NULL,
         module_name VARCHAR NOT NULL,
         relative_path VARCHAR NOT NULL,
-        category VARCHAR NOT NULL,
-        lines INTEGER NOT NULL,
-        function_count INTEGER NOT NULL,
-        jones_line_count INTEGER NOT NULL,
-        top_folder VARCHAR NOT NULL DEFAULT '.',
-        cc_count INTEGER NOT NULL,
-        cc_mean DOUBLE NOT NULL,
-        cc_median DOUBLE NOT NULL,
-        cc_p95 DOUBLE NOT NULL,
-        cc_max DOUBLE NOT NULL,
-        cog_count INTEGER NOT NULL,
-        cog_mean DOUBLE NOT NULL,
-        cog_median DOUBLE NOT NULL,
-        cog_p95 DOUBLE NOT NULL,
-        cog_max DOUBLE NOT NULL,
-        jones_count INTEGER NOT NULL,
-        jones_mean DOUBLE NOT NULL,
-        jones_median DOUBLE NOT NULL,
-        jones_p95 DOUBLE NOT NULL,
-        jones_max DOUBLE NOT NULL,
-        parse_error VARCHAR,
+        line_category_id VARCHAR NOT NULL,
+        metrics JSON NOT NULL,
+        line_counts JSON NOT NULL,
+        distributions JSON NOT NULL,
         PRIMARY KEY (commit_hash, module_name, relative_path)
     )
     """,
@@ -86,33 +69,9 @@ DDL_STATEMENTS = (
         commit_hash VARCHAR NOT NULL,
         module_name VARCHAR NOT NULL,
         total_lines INTEGER NOT NULL,
-        python_lines INTEGER NOT NULL,
-        js_lines INTEGER NOT NULL,
-        python_test_lines INTEGER NOT NULL,
-        xml_lines INTEGER NOT NULL,
-        css_lines INTEGER NOT NULL,
-        html_lines INTEGER NOT NULL,
-        python_file_count INTEGER NOT NULL DEFAULT 0,
-        cc_count INTEGER NOT NULL,
-        cc_mean DOUBLE NOT NULL,
-        cc_median DOUBLE NOT NULL,
-        cc_p95 DOUBLE NOT NULL,
-        cc_max DOUBLE NOT NULL,
-        cog_count INTEGER NOT NULL,
-        cog_mean DOUBLE NOT NULL,
-        cog_median DOUBLE NOT NULL,
-        cog_p95 DOUBLE NOT NULL,
-        cog_max DOUBLE NOT NULL,
-        jones_count INTEGER NOT NULL,
-        jones_mean DOUBLE NOT NULL,
-        jones_median DOUBLE NOT NULL,
-        jones_p95 DOUBLE NOT NULL,
-        jones_max DOUBLE NOT NULL,
-        declared_models_count INTEGER NOT NULL,
-        inherited_models_count INTEGER NOT NULL,
-        python_complexity_parse_errors INTEGER NOT NULL,
-        score_out INTEGER NOT NULL,
-        score_in INTEGER NOT NULL,
+        metrics JSON NOT NULL,
+        line_counts JSON NOT NULL,
+        distributions JSON NOT NULL,
         PRIMARY KEY (commit_hash, module_name)
     )
     """,
@@ -122,59 +81,10 @@ DDL_STATEMENTS = (
         source_module VARCHAR NOT NULL,
         target_module VARCHAR NOT NULL,
         score INTEGER NOT NULL,
+        kinds JSON NOT NULL,
+        kind_occurrence_count INTEGER NOT NULL DEFAULT 0,
+        breakdown JSON,
         PRIMARY KEY (commit_hash, source_module, target_module)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS coupling_edge_kind (
-        commit_hash VARCHAR NOT NULL,
-        source_module VARCHAR NOT NULL,
-        target_module VARCHAR NOT NULL,
-        kind VARCHAR NOT NULL,
-        count INTEGER NOT NULL,
-        PRIMARY KEY (commit_hash, source_module, target_module, kind)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS coupling_edge_breakdown (
-        commit_hash VARCHAR NOT NULL,
-        source_module VARCHAR NOT NULL,
-        target_module VARCHAR NOT NULL,
-        model_reuse INTEGER NOT NULL,
-        extension_or_method INTEGER NOT NULL,
-        view INTEGER NOT NULL,
-        field_property INTEGER NOT NULL,
-        total INTEGER NOT NULL,
-        PRIMARY KEY (commit_hash, source_module, target_module)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS coupling_edge_evidence (
-        commit_hash VARCHAR NOT NULL,
-        source_module VARCHAR NOT NULL,
-        target_module VARCHAR NOT NULL,
-        kind VARCHAR NOT NULL,
-        file_path VARCHAR NOT NULL,
-        line INTEGER NOT NULL,
-        detail VARCHAR NOT NULL,
-        source_quote VARCHAR NOT NULL DEFAULT ''
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS module_model (
-        commit_hash VARCHAR NOT NULL,
-        module_name VARCHAR NOT NULL,
-        model_name VARCHAR NOT NULL,
-        relation VARCHAR NOT NULL,
-        PRIMARY KEY (commit_hash, module_name, model_name, relation)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS module_manifest_depend (
-        commit_hash VARCHAR NOT NULL,
-        module_name VARCHAR NOT NULL,
-        depends_on VARCHAR NOT NULL,
-        PRIMARY KEY (commit_hash, module_name, depends_on)
     )
     """,
     """
@@ -187,45 +97,7 @@ DDL_STATEMENTS = (
     """,
 )
 
-
-MIGRATION_STATEMENTS = (
-    "ALTER TABLE coupling_edge_evidence ADD COLUMN IF NOT EXISTS source_quote VARCHAR",
-    "UPDATE coupling_edge_evidence SET source_quote = '' WHERE source_quote IS NULL",
-)
-
-
-def store_needs_migration(store_file: Path) -> bool:
-    """Return True when additive migrations are pending on disk."""
-    if not store_file.is_file():
-        return False
-    connection = duckdb.connect(str(store_file), read_only=True)
-    try:
-        rows = connection.execute(
-            """
-            SELECT 1
-            FROM information_schema.columns
-            WHERE table_name = 'coupling_edge_evidence'
-              AND column_name = 'source_quote'
-            LIMIT 1
-            """,
-        ).fetchall()
-        return not rows
-    except duckdb.CatalogException:
-        return False
-    finally:
-        connection.close()
-
-
-def apply_store_migrations(store_file: Path) -> None:
-    """Apply additive schema migrations to an on-disk store."""
-    if not store_file.is_file() or not store_needs_migration(store_file):
-        return
-    connection = duckdb.connect(str(store_file))
-    try:
-        for statement in MIGRATION_STATEMENTS:
-            connection.execute(statement)
-    finally:
-        connection.close()
+MIGRATION_STATEMENTS: tuple[str, ...] = ()
 
 
 def initialize_schema(connection: duckdb.DuckDBPyConnection, tool_version: str) -> None:

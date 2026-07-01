@@ -3,7 +3,6 @@
 from ppi.core.odoo.pipeline import (
     CouplingEdgeAccumulator,
     build_distribution_stats,
-    edge_score,
 )
 
 
@@ -25,10 +24,10 @@ def test_build_distribution_stats_values():
 
 
 def test_edge_score_weights_kinds():
-    """Coupling score applies kind weights from the legacy formula."""
+    """Coupling score sums kind counts."""
     edge = CouplingEdgeAccumulator(
         source_module="a",
         target_module="b",
         kind_counter={"python__inherit": 2, "python_method_call": 1},
     )
-    assert edge_score(edge) == 3
+    assert edge.score == 3

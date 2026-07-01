@@ -193,7 +193,11 @@ class _FakeModule:
 
 
 def test_freeze_module_info_immutable():
-    mf = freeze_module_info(_FakeModule())
+    from ppi.core.odoo.complexity import ComplexityMetrics
+
+    fake = _FakeModule()
+    fake.complexity = ComplexityMetrics.empty()
+    mf = freeze_module_info(fake)
     assert isinstance(mf, ModuleFacts)
     assert mf.name == "sale"
     assert mf.manifest_depends == frozenset({"base"})

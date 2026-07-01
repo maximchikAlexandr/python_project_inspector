@@ -1,6 +1,6 @@
 /**
  * Dashboard data-path integration test (T031): QueryBridge (ppi rpc) serves
- * real `status` and `graph` responses over a fixture store, end-to-end.
+ * real `project/info` and `graph` responses over a fixture store, end-to-end.
  *
  * This is the runnable, environment-portable equivalent of the webview
  * end-to-end check: it exercises the same path the dashboard panel uses
@@ -34,7 +34,7 @@ function makeFixtureRepo(root: string): string {
   return repo;
 }
 
-test("QueryBridge serves status and graph over a fixture store", async () => {
+test("QueryBridge serves project/info and graph over a fixture store", async () => {
   const repo = makeFixtureRepo(tmpdir());
   const analysisDir = mkdtempSync(join(tmpdir(), "ppi-dash-analysis-"));
   try {
@@ -48,7 +48,7 @@ test("QueryBridge serves status and graph over a fixture store", async () => {
     const bridge = new QueryBridge({ cliArgs: CLI_ARGS, repo, analysisDir });
     bridge.start();
     try {
-      const status = bridge.request<{ store_present: boolean; commit_count: number }>("status");
+      const status = bridge.request<{ store_present: boolean; commit_count: number }>("project/info");
       const graph = bridge.request<{ commit_hash: string | null; nodes: unknown[] }>("graph");
       const s = await status;
       assert.ok(s.store_present, "store should be present after analyze");

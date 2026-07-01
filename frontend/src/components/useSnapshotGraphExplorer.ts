@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { CommitRow, FileSnapshot, GraphEdge, GraphNode } from "../api/client";
+import type { CommitRow, GraphEdge, GraphNode } from "../api/client";
+import type { TreemapFile } from "./FileTreemap";
 import { layoutNodesToMap, pinnedFromLayout, type LayoutNodePosition } from "../domain/layoutCodec";
 import { commitPositionLabel } from "../transforms/snapshotTransforms";
 import type {
@@ -11,7 +12,7 @@ import type {
 import { applyGraphFilters, maxEffectiveEdgeScore } from "./graphSelectors";
 import { useGraphLayoutStore } from "./useGraphLayoutStore";
 import { useGraphSettings } from "./useGraphSettings";
-import { graphBreakdownKindMeta } from "../registry/odooProfile";
+import { CHART_CATEGORY_COLORS } from "../registry/odooProfile";
 
 type LayoutNodeMap = Map<string, LayoutNodePosition>;
 
@@ -23,8 +24,8 @@ type Args = {
   readonly graphEdges: readonly GraphEdge[];
   readonly selectedModule: string | null;
   readonly setSelectedModule: (moduleName: string | null) => void;
-  readonly setSelectedFile: (file: FileSnapshot | null) => void;
-  readonly setHoveredFile: (file: FileSnapshot | null) => void;
+  readonly setSelectedFile: (file: TreemapFile | null) => void;
+  readonly setHoveredFile: (file: TreemapFile | null) => void;
   readonly projectKey: string | null;
   readonly loadingGraph: boolean;
   readonly setFocusNotice: (notice: string | null) => void;
@@ -130,7 +131,19 @@ export function useSnapshotGraphExplorer({
     return null;
   }, [filterResult]);
 
-  const edgeKindMeta = useMemo(() => graphBreakdownKindMeta(graphEdges), [graphEdges]);
+  const edgeKindMeta = useMemo(() => {
+    const seen = new Set<string>();
+    const kinds: { key: string; label: string; color: string }[] = [];
+    for (const edge of graphEdges) {
+      for (const key of Object.keys(edge.breakdown ?? {})) {
+        if (key !== "total" && !seen.has(key)) {
+          seen.add(key);
+          kinds.push({ key, label: key, color: CHART_CATEGORY_COLORS[kinds.length % CHART_CATEGORY_COLORS.length] });
+        }
+      }
+    }
+    return kinds;
+  }, [graphEdges]);
 
   const maxEffectiveScore = useMemo(
     () => maxEffectiveEdgeScore(graphEdges, settings.filter.enabledEdgeKinds),

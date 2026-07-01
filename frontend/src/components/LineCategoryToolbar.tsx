@@ -1,33 +1,15 @@
 import { Checkbox, Group, Paper, Stack, Text } from "@mantine/core";
 
 import { t } from "../i18n";
-import { LINE_CATEGORIES, type LineCategoryKey } from "../registry/odooProfile";
+import type { UiOption } from "../api/client";
 
 type Props = {
-  readonly active: ReadonlySet<LineCategoryKey>;
-  readonly onChange: (next: Set<LineCategoryKey>) => void;
+  readonly options: readonly UiOption[];
+  readonly active: ReadonlySet<string>;
+  readonly onChange: (next: Set<string>) => void;
 };
 
-function lineCategoryLabel(key: LineCategoryKey, fallback: string): string {
-  switch (key) {
-    case "python_lines":
-      return t("lineCategory.pythonCode", "Python code");
-    case "js_lines":
-      return t("lineCategory.js", "JS");
-    case "python_test_lines":
-      return t("lineCategory.pythonTest", "Python test");
-    case "xml_lines":
-      return t("lineCategory.xmlView", "XML view");
-    case "css_lines":
-      return t("lineCategory.css", "CSS");
-    case "html_lines":
-      return t("lineCategory.html", "HTML");
-    default:
-      return fallback;
-  }
-}
-
-export function LineCategoryToolbar({ active, onChange }: Props) {
+export function LineCategoryToolbar({ options, active, onChange }: Props) {
   return (
     <Paper withBorder radius="md" p="sm" style={{ width: "100%" }}>
       <Stack gap="xs">
@@ -36,11 +18,12 @@ export function LineCategoryToolbar({ active, onChange }: Props) {
         </Text>
         <Checkbox.Group
           value={[...active]}
-          onChange={(values) => onChange(new Set(values as LineCategoryKey[]))}
+          onChange={(values) => onChange(new Set(values))}
         >
           <Group gap="md">
-            {LINE_CATEGORIES.map(({ key, label }) => (
-              <Checkbox key={key} value={key} label={lineCategoryLabel(key, label)} />
+            {options.length === 0 && <Text size="xs" c="dimmed">No line categories</Text>}
+            {options.map(({ id, label }) => (
+              <Checkbox key={id} value={id} label={label} />
             ))}
           </Group>
         </Checkbox.Group>

@@ -2,15 +2,13 @@ import { Group, Stack, Text } from "@mantine/core";
 
 import { t } from "../i18n";
 import type { GraphDisplayState } from "./graphSettingsTypes";
-import type { GraphEdgeKind } from "./graphSettingsTypes";
-
 type Props = {
   readonly nodeSizeMetric: GraphDisplayState["nodeSizeMetric"];
   readonly linkThicknessMetric: GraphDisplayState["linkThicknessMetric"];
-  readonly edgeKindMeta: ReadonlyArray<{ key: GraphEdgeKind; label: string; color: string }>;
+  readonly edgeKindMeta: ReadonlyArray<{ key: string; label: string; color: string }>;
 };
 
-const NODE_SIZE_LABELS: Record<GraphDisplayState["nodeSizeMetric"], string> = {
+const NODE_SIZE_LABELS: Record<string, string> = {
   visible_lines: "Visible line categories",
   total_lines: "Total lines",
   method_count: "Method count",
@@ -19,7 +17,7 @@ const NODE_SIZE_LABELS: Record<GraphDisplayState["nodeSizeMetric"], string> = {
   fixed: "Fixed radius",
 };
 
-function nodeSizeLabel(metric: GraphDisplayState["nodeSizeMetric"]): string {
+function nodeSizeLabel(metric: string): string {
   switch (metric) {
     case "visible_lines":
       return t("graph.legend.nodeSize.visibleLineCategories", "Visible line categories");
@@ -34,18 +32,18 @@ function nodeSizeLabel(metric: GraphDisplayState["nodeSizeMetric"]): string {
     case "fixed":
       return t("graph.legend.nodeSize.fixedRadius", "Fixed radius");
     default:
-      return NODE_SIZE_LABELS[metric];
+      return NODE_SIZE_LABELS[metric] ?? metric;
   }
 }
 
-const LINK_THICKNESS_LABELS: Record<GraphDisplayState["linkThicknessMetric"], string> = {
+const LINK_THICKNESS_LABELS: Record<string, string> = {
   total_points: "Total edge points",
   selected_kind_points: "Selected-kind points",
   score: "Edge score",
   fixed: "Fixed thickness",
 };
 
-function linkThicknessLabel(metric: GraphDisplayState["linkThicknessMetric"]): string {
+function linkThicknessLabel(metric: string): string {
   switch (metric) {
     case "total_points":
       return t("graph.legend.linkThickness.totalEdgePoints", "Total edge points");
@@ -56,22 +54,7 @@ function linkThicknessLabel(metric: GraphDisplayState["linkThicknessMetric"]): s
     case "fixed":
       return t("graph.legend.linkThickness.fixedThickness", "Fixed thickness");
     default:
-      return LINK_THICKNESS_LABELS[metric];
-  }
-}
-
-function edgeKindLabel(key: GraphEdgeKind, fallback: string): string {
-  switch (key) {
-    case "model_reuse":
-      return t("graph.edgeKind.modelReuse", "Model reuse");
-    case "extension_or_method":
-      return t("graph.edgeKind.extensionOrMethod", "Extension / method");
-    case "view":
-      return t("graph.edgeKind.view", "View");
-    case "field_property":
-      return t("graph.edgeKind.fieldProperty", "Field / property");
-    default:
-      return fallback;
+      return LINK_THICKNESS_LABELS[metric] ?? metric;
   }
 }
 
@@ -106,7 +89,7 @@ export function GraphLegend({ nodeSizeMetric, linkThicknessMetric, edgeKindMeta 
             }}
           />
           <Text size="xs" c="dimmed">
-            {edgeKindLabel(key, label)}
+            {label}
           </Text>
         </Group>
       ))}

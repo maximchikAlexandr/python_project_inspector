@@ -568,41 +568,12 @@ def _run_analyze_loop(
 
 
 @cli.command()
-@click.option(
-    "--metric",
-    type=click.Choice(
-        [
-            "complexity",
-            "lines",
-            "edges",
-            "modules",
-            "files",
-            "module-detail",
-            "file-detail",
-            "graph",
-            "edge-points",
-            "edge-evidence",
-            "models",
-            "depends",
-            "lines-by-category",
-            "file-count",
-            "edge-kinds",
-            "relations-diff",
-            "failures",
-        ],
-        case_sensitive=False,
-    ),
-    required=True,
-)
+@click.option("--metric", type=str, required=True)
 @click.option("--module", "module_name", default=None)
 @click.option(
     "--file", "file_path", default=None, help="Filter to one file as module/relative/path."
 )
 @click.option("--commit", "commit_hash", default=None, help="Snapshot selector (default: latest).")
-@click.option("--commit-b", "commit_b", default=None, help="Second commit for relations-diff.")
-@click.option("--source", default=None, help="Edge source module.")
-@click.option("--target", default=None, help="Edge target module.")
-@click.option("--kind", default=None, help="Edge kind filter for edge-kinds metric.")
 @click.option(
     "--agg",
     type=click.Choice(["mean", "median", "p95", "max"], case_sensitive=False),
@@ -626,10 +597,6 @@ def query(
     module_name: str | None,
     file_path: str | None,
     commit_hash: str | None,
-    commit_b: str | None,
-    source: str | None,
-    target: str | None,
-    kind: str | None,
     agg: str,
     include_zero_score: bool,
     output_format: str,
@@ -648,70 +615,26 @@ def query(
         stored = reader.get_project()
         if stored is not None:
             _assert_store_metadata(ctx, stored)
+
+        def _ch(commit_hash: str | None) -> str:
+            return commit_hash or reader.latest_commit_hash()
+
         payload: dict | list
-        if metric == "modules":
-            payload = reader.modules_at_commit(commit_hash)
-        elif metric == "files":
-            payload = reader.files_at_commit(commit_hash, module_name)
-        elif metric == "module-detail":
-            if not module_name:
-                raise click.ClickException("--module is required for module-detail metric")
-            payload = reader.module_detail(module_name, commit_hash)
-        elif metric == "file-detail":
-            if not file_path:
-                raise click.ClickException("--file is required for file-detail metric")
-            mod, rel = _parse_file_path(file_path)
-            payload = reader.file_detail(mod, rel, commit_hash)
-        elif metric == "graph":
+        if metric == "graph":
             payload = reader.graph_at_commit(commit_hash, include_zero_score=include_zero_score)
-        elif metric == "edge-points":
-            if not source or not target:
-                raise click.ClickException(
-                    "--source and --target are required for edge-points metric"
-                )
-            payload = reader.edge_points(
-                source,
-                target,
-                commit_hash,
-                include_zero_score=include_zero_score,
-            )
-        elif metric == "edge-evidence":
-            if not source or not target:
-                raise click.ClickException(
-                    "--source and --target are required for edge-evidence metric"
-                )
-            payload = reader.edge_evidence_for_pair(
-                source,
-                target,
-                commit_hash,
-                include_zero_score=include_zero_score,
-            )
-        elif metric == "models":
-            if not module_name:
-                raise click.ClickException("--module is required for models metric")
-            payload = reader.module_models(module_name, commit_hash)
-        elif metric == "depends":
-            payload = reader.manifest_depends(module_name, commit_hash)
-        elif metric == "lines-by-category":
-            if not module_name:
-                raise click.ClickException("--module is required for lines-by-category metric")
-            payload = reader.module_lines_by_category_timeseries(module_name)
-        elif metric == "file-count":
-            if not module_name:
-                raise click.ClickException("--module is required for file-count metric")
-            payload = reader.python_file_count_timeseries(module_name)
-        elif metric == "edge-kinds":
-            payload = reader.edge_kind_timeseries(kind)
-        elif metric == "relations-diff":
-            if not commit_hash or not commit_b:
-                raise click.ClickException(
-                    "--commit and --commit-b are required for relations-diff metric"
-                )
-            payload = reader.relations_diff(commit_hash, commit_b)
-        elif metric == "failures":
-            payload = reader.failures_at_commit(commit_hash)
-        elif metric == "edges":
-            payload = reader.edges_at_commit(commit_hash, include_zero_score=include_zero_score)
+        elif metric == "snapshot-table-modules":
+            rows = reader.snapshot_table_modules(commit_hash)
+            payload = {"commit_hash": _ch(commit_hash), "rows": [{"cells": row} for row in rows]}
+        elif metric == "snapshot-table-files":
+            rows = reader.snapshot_table_files(commit_hash, module_name)
+            payload = {"commit_hash": _ch(commit_hash), "rows": [{"cells": row} for row in rows]}
+        elif metric == "snapshot-relations":
+            relations = reader.snapshot_relations(commit_hash, include_zero_score=include_zero_score)
+            payload = {"commit_hash": _ch(commit_hash), "relations": relations}
+        elif metric == "project-info":
+            payload = reader.project_info()
+        elif metric == "ui-config":
+            payload = {"dashboard_metrics": [], "aggregations": [], "tables": [], "graph": {"edge_types": [], "line_categories": [], "brightness_metrics": [], "node_size_metrics": [], "link_thickness_metrics": []}}
         elif file_path:
             mod, rel = _parse_file_path(file_path)
             if not reader.file_exists(mod, rel):
@@ -719,7 +642,7 @@ def query(
             payload = (
                 reader.file_lines_timeseries(mod, rel)
                 if metric == "lines"
-                else reader.file_complexity_timeseries(mod, rel, agg=agg)
+                else reader.file_complexity_timeseries(mod, rel, metric=metric, agg=agg)
             )
         elif metric == "lines":
             if not module_name:
@@ -729,19 +652,16 @@ def query(
             payload = reader.module_lines_timeseries(module_name)
         else:
             if not module_name:
-                raise click.ClickException("--module is required for complexity metric")
+                raise click.ClickException("--module is required for metric timeseries")
             if not reader.module_exists(module_name):
                 raise click.ClickException(f"Unknown module: {module_name}")
-            payload = reader.module_complexity_timeseries(module_name, agg=agg)
+            payload = reader.module_complexity_timeseries(module_name, metric=metric, agg=agg)
     except QueryNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
     finally:
         reader.close()
     if isinstance(payload, dict):
-        if output_format == "json":
-            click.echo(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
-        else:
-            click.echo(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+        click.echo(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
         return
     _emit_query_rows(payload, output_format)
 

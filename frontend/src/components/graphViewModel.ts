@@ -1,12 +1,5 @@
 import type { GraphEdge, GraphNode } from "../api/client";
-import {
-  colorForComplexityRatio,
-  computeNodeBrightnessMap,
-  strokeForComplexityRatio,
-  type BrightnessCriterion,
-  type GraphEdgeKind,
-  type LineCategoryKey,
-} from "../registry/odooProfile";
+import { colorForComplexityRatio, strokeForComplexityRatio } from "../registry/odooProfile";
 import {
   buildGraphEdgeViews,
   computeNodeDisplay,
@@ -18,7 +11,6 @@ import {
 import type { GraphDisplayState } from "./graphSettingsTypes";
 
 export type ModuleGraphViewModel = {
-  readonly brightnessById: ReadonlyMap<string, number>;
   readonly maxMetric: number;
   readonly thicknessMax: number;
   readonly nodeRadiiById: ReadonlyMap<string, number>;
@@ -30,14 +22,12 @@ export function buildModuleGraphViewModel(
   nodes: readonly GraphNode[],
   edges: readonly GraphEdge[],
   display: GraphDisplayState,
-  enabledEdgeKinds: Readonly<Record<GraphEdgeKind, boolean>>,
-  brightnessCriteria: ReadonlySet<BrightnessCriterion>,
-  lineCategories: ReadonlySet<LineCategoryKey>,
+  enabledEdgeKinds: Readonly<Record<string, boolean>>,
+  lineCategories: ReadonlySet<string>,
   selectedModule: string | null,
   hoveredId: string | null,
   labelZoom: number,
 ): ModuleGraphViewModel {
-  const brightnessById = computeNodeBrightnessMap(nodes, brightnessCriteria);
   const maxMetric = maxNodeMetric(nodes, display.nodeSizeMetric, lineCategories);
   const thicknessMax = maxLinkThicknessMetric(edges, display, enabledEdgeKinds);
 
@@ -47,7 +37,7 @@ export function buildModuleGraphViewModel(
   const nodeDisplayById = new Map<string, NodeDisplayModel>();
   for (const node of nodes) {
     const id = node.module_name;
-    const ratio = brightnessCriteria.size ? (brightnessById.get(id) ?? 0) : 0;
+    const ratio = 0;
     nodeRadiiById.set(
       id,
       computeNodeDisplay(node, display, {
@@ -77,7 +67,6 @@ export function buildModuleGraphViewModel(
   }
 
   return {
-    brightnessById,
     maxMetric,
     thicknessMax,
     nodeRadiiById,

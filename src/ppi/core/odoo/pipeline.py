@@ -9,7 +9,6 @@ import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
@@ -22,7 +21,7 @@ from expression.core.result import Error, Ok, Result
 from radon.visitors import ComplexityVisitor
 from toolz import curry, valmap
 
-from ppi.adapters.filesystem import FilesystemSourceQuoteProvider, SourceQuoteProvider
+
 from ppi.core.errors import InvalidAddonsPath, ManifestDiscoveryError
 from ppi.core.odoo.ast_extract import (
     extract_string_list,
@@ -39,9 +38,7 @@ from ppi.core.odoo.dist_stats import build_distribution_stats
 from ppi.core.odoo.edge_scoring import module_scores_from_edges
 from ppi.core.odoo.facts import (
     CouplingEdgeSnapshot,
-    EdgeBreakdown,
     EdgeFact,
-    EdgeKindCount,
     reduce_edge_facts,
 )
 from ppi.core.odoo.file_classification import classify_relative_file
@@ -96,59 +93,13 @@ IGNORED_MODEL_ATTRIBUTE_NAMES = {
 EXTERNAL_ID_RE = re.compile(r"([a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)")
 PERCENT_EXTERNAL_ID_RE = re.compile(r"%\(([a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)\)d")
 
-# ponytail: LINE_CATEGORY_KEYS derived from the typed LineCategory enum so the
-# stringly keys and the enum cannot drift apart; boundary code still uses the
-# tuple of .value strings for getattr/dict-fromkeys compatibility.
 from ppi.core.value_objects import (  # noqa: E402
     EdgeKind,
     LineCategory,
     edge_kind_of,
 )
 
-LINE_CATEGORY_KEYS: tuple[str, ...] = tuple(category.value for category in LineCategory)
 CSS_FILE_SUFFIXES = {".css", ".scss", ".less", ".sass"}
-
-
-@dataclass(frozen=True, slots=True)
-class PipelineEvidence:
-    """One evidence item collected during pipeline analysis."""
-
-    kind: str
-    file_path: str
-    line: int
-    detail: str
-    source_quote: str = ""
-
-
-# ponytail: module-level default provider keeps legacy callers working without
-# passing a dependency; pure reducers/tests inject a fake SourceQuoteProvider.
-_default_quote_provider: SourceQuoteProvider = FilesystemSourceQuoteProvider()
-
-
-def _read_source_quote(file_path: Path, line: int) -> str:
-    """Return the trimmed source line for one evidence location (adapter-backed)."""
-    if line <= 0:
-        return ""
-    from ppi.core.value_objects import SourceLine  # local to avoid cycle on import
-
-    sl = SourceLine.or_none(line)
-    if sl is None:
-        return ""
-    return _default_quote_provider.quote(file_path, sl)
-
-
-@lru_cache(maxsize=4096)
-def _cached_file_lines(path: str, mtime_ns: int) -> tuple[str, ...]:
-    """Return file lines keyed by path and modification time.
-
-    Kept for backward compatibility with external callers/tests; new code goes
-    through :class:`ppi.adapters.filesystem.FilesystemSourceQuoteProvider`.
-    """
-    try:
-        text = Path(path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ()
-    return tuple(text.splitlines())
 
 
 @dataclass(slots=True)
@@ -163,25 +114,15 @@ class CouplingEdgeAccumulator:
     source_module: str
     target_module: str
     kind_counter: Counter = field(default_factory=Counter)
-    evidence_items: list[PipelineEvidence] = field(default_factory=list)
 
     def add(self, kind: str, file_path: Path, line: int, detail: str) -> None:
-        """Add one evidence item to the edge."""
-        self.evidence_items.append(
-            PipelineEvidence(
-                kind=kind,
-                file_path=file_path.as_posix(),
-                line=line,
-                detail=detail,
-                source_quote=_read_source_quote(file_path, line),
-            ),
-        )
+        """Record one coupling between two modules."""
         self.kind_counter[kind] += 1
 
     @property
     def score(self) -> int:
         """Compute graph points for this edge."""
-        return edge_breakdown(self).total
+        return sum(self.kind_counter.values())
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,7 +188,10 @@ class ModuleInfo:
 
     def line_categories(self) -> dict[str, int]:
         """Return mapping of line-category key to value."""
-        return {key: getattr(self, key) for key in LINE_CATEGORY_KEYS}
+        return {
+            category.value: getattr(self, category.value)
+            for category in LineCategory
+        }
 
     def freeze(self) -> ModuleFacts:
         """Freeze this mutable builder into an immutable :class:`ModuleFacts` snapshot."""
@@ -290,33 +234,6 @@ class AnalysisArtifacts:
         carries modules/providers/scores through the boundary (F9).
         """
         return freeze_analysis_artifacts(self)
-
-
-# ponytail: build_distribution_stats / EdgeBreakdownResult / edge_breakdown /
-# edge_score previously duplicated here now live in the canonical pure modules
-# dist_stats.py / facts.py / edge_scoring.py. They stay re-exported below for
-# backwards compatibility with tests and analysis_mappers.
-
-
-def edge_breakdown(edge: CouplingEdgeAccumulator) -> EdgeBreakdown:
-    """Compute the typed breakdown for one edge accumulator (compat shim).
-
-    Delegates to the canonical :func:`ppi.core.odoo.facts.EdgeBreakdown` via
-    typed kind counts so there is a single scoring rule (F4).
-    """
-    from ppi.core.value_objects import edge_kind_group_of  # noqa: F401  (kept for parity)
-
-    counts = tuple(
-        EdgeKindCount(kind=k, count=c)
-        for k, c in edge.kind_counter.items()
-        if edge_kind_of(k) is not None
-    )
-    return EdgeBreakdown.from_kind_counts(counts)
-
-
-def edge_score(edge: CouplingEdgeAccumulator) -> int:
-    """Compute graph points for one edge (compat shim over typed breakdown)."""
-    return edge_breakdown(edge).total
 
 
 def file_top_folder(relative_path: str) -> str:
@@ -617,12 +534,8 @@ def attach_edges_and_scores(artifacts: AnalysisArtifacts) -> AnalysisArtifacts:
 def _accumulators_to_edge_facts(
     edges: dict[tuple[str, str], CouplingEdgeAccumulator],
 ) -> tuple[EdgeFact, ...]:
-    """Convert mutable accumulators into an immutable :class:`EdgeFact` stream.
-
-    Source quotes were already read by ``CouplingEdgeAccumulator.add``; the
-    facts carry them through so :func:`reduce_edge_facts` needs no I/O (F1).
-    """
-    from ppi.core.value_objects import ModuleName, RelativeFilePath, SourceLine
+    """Convert mutable accumulators into an immutable :class:`EdgeFact` stream."""
+    from ppi.core.value_objects import ModuleName
 
     out: list[EdgeFact] = []
     for edge in edges.values():
@@ -630,24 +543,11 @@ def _accumulators_to_edge_facts(
         tgt = ModuleName.parse(edge.target_module)
         if src is None or tgt is None:
             continue
-        for evidence in edge.evidence_items:
-            kind_typed = edge_kind_of(evidence.kind)
+        for kind_str in edge.kind_counter:
+            kind_typed = edge_kind_of(kind_str)
             if kind_typed is None:
                 continue
-            # ponytail: pipeline accumulators store absolute posix paths; the
-            # facts layer accepts them via coerce so no evidence is dropped.
-            rel = RelativeFilePath.coerce(evidence.file_path)
-            out.append(
-                EdgeFact(
-                    source_module=src,
-                    target_module=tgt,
-                    kind=kind_typed,
-                    file_path=rel,
-                    line=SourceLine.or_none(evidence.line),
-                    detail=evidence.detail,
-                    source_quote=evidence.source_quote,
-                ),
-            )
+            out.append(EdgeFact(source_module=src, target_module=tgt, kind=kind_typed))
     return tuple(out)
 
 
@@ -782,7 +682,9 @@ def classify_file(file_path: Path, module_path: Path) -> str | None:
 
 def analyze_module_code_size_for_module(module: ModuleInfo) -> ModuleInfo:
     """Count code-size metrics for one module without mutating input."""
-    counters = dict.fromkeys(LINE_CATEGORY_KEYS, 0)
+    counters = dict.fromkeys(
+        (category.value for category in LineCategory), 0
+    )
     files: list[FileLineInfo] = []
     for file_path in sorted(module.path.rglob("*")):
         if not file_path.is_file():

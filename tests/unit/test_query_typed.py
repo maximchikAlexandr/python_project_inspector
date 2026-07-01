@@ -7,15 +7,8 @@ import pytest
 from ppi.query.errors import QueryError, QueryErrorCode, QueryFailure, raise_query_failure
 from ppi.query.requests import (
     Aggregation,
-    CatalogLevel,
-    CatalogQuery,
-    EdgesQuery,
     HotspotBy,
-    HotspotMetric,
     HotspotsQuery,
-    SnapshotFileQuery,
-    SnapshotModuleQuery,
-    StructureTimeseriesQuery,
 )
 
 # --- errors ----------------------------------------------------------------
@@ -57,21 +50,10 @@ def test_raise_query_failure_raises():
 # --- requests --------------------------------------------------------------
 
 
-def test_catalog_query_from_params():
-    q = CatalogQuery.from_params({"level": "file", "limit": "10"})
-    assert q.level is CatalogLevel.FILE
-    assert q.limit == 10
-
-
-def test_catalog_query_default_limit():
-    q = CatalogQuery.from_params({"level": "module"})
-    assert q.limit == 5000
-
-
 def test_hotspots_query_defaults():
-    q = HotspotsQuery.from_params({})
-    assert q.level is CatalogLevel.MODULE
-    assert q.metric is HotspotMetric.CYCLOMATIC
+    q = HotspotsQuery.from_params({"metric_id": "cyclomatic"})
+    assert q.level == "module"
+    assert q.metric_id == "cyclomatic"
     assert q.by is HotspotBy.VALUE
     assert q.limit == 20
     assert q.agg is Aggregation.MEAN
@@ -79,52 +61,10 @@ def test_hotspots_query_defaults():
 
 def test_hotspots_query_explicit():
     q = HotspotsQuery.from_params(
-        {"level": "file", "metric": "cognitive", "by": "growth", "limit": "5", "agg": "max"}
+        {"level": "file", "metric_id": "cognitive", "by": "growth", "limit": "5", "agg": "max"}
     )
-    assert q.level is CatalogLevel.FILE
-    assert q.metric is HotspotMetric.COGNITIVE
+    assert q.level == "file"
+    assert q.metric_id == "cognitive"
     assert q.by is HotspotBy.GROWTH
     assert q.limit == 5
     assert q.agg is Aggregation.MAX
-
-
-def test_edges_query_from_params():
-    q = EdgesQuery.from_params({"commit": "abc", "min_score": "5"})
-    assert q.commit == "abc"
-    assert q.min_score == 5
-    assert q.effective_threshold == 5
-
-
-def test_edges_query_effective_threshold_zero():
-    q = EdgesQuery.from_params({"min_score": 0})
-    assert q.effective_threshold == 1
-
-
-def test_edges_query_effective_threshold_zero_with_include():
-    q = EdgesQuery.from_params({"min_score": 0, "include_zero_score": "true"})
-    assert q.effective_threshold == 0
-
-
-def test_structure_timeseries_query():
-    q = StructureTimeseriesQuery.from_params({"include_zero_score": "true"})
-    assert q.include_zero_score is True
-    q2 = StructureTimeseriesQuery.from_params({})
-    assert q2.include_zero_score is False
-
-
-def test_snapshot_module_query():
-    q = SnapshotModuleQuery.from_params({"module": "sale"})
-    assert q.module == "sale"
-    assert q.commit is None
-
-
-def test_snapshot_module_query_requires_module():
-    with pytest.raises(Exception) as exc_info:  # noqa: PT012
-        SnapshotModuleQuery.from_params({})
-    assert getattr(exc_info.value, "code", None) == "INVALID_PARAMS"
-
-
-def test_snapshot_file_query():
-    q = SnapshotFileQuery.from_params({"commit": "abc", "module": "sale"})
-    assert q.commit == "abc"
-    assert q.module == "sale"

@@ -41,11 +41,11 @@ def _analyze(repo: Path, analysis_dir: Path) -> TestClient:
     return TestClient(create_app(store_path(repo), writer_lock_path(repo)))
 
 
-def test_cli_api_modules_parity(odoo_sample_repo: Path, tmp_path: Path):
-    """CLI and API module snapshots return the same payload."""
+def test_cli_api_snapshot_table_modules_parity(odoo_sample_repo: Path, tmp_path: Path):
+    """CLI and API snapshot/table/modules return the same payload."""
     analysis_dir = tmp_path / "analysis"
     client = _analyze(odoo_sample_repo, analysis_dir)
-    api_body = client.get("/api/snapshot/modules").json()
+    api_body = client.get("/api/snapshot/table/modules").json()
 
     runner = CliRunner()
     cli_result = runner.invoke(
@@ -57,7 +57,7 @@ def test_cli_api_modules_parity(odoo_sample_repo: Path, tmp_path: Path):
             str(analysis_dir),
             "query",
             "--metric",
-            "modules",
+            "snapshot-table-modules",
             "--format",
             "json",
         ],
@@ -97,7 +97,7 @@ def test_unknown_commit_returns_404(odoo_sample_repo: Path, tmp_path: Path):
     """Unknown commit selectors return 404 on API and CLI."""
     analysis_dir = tmp_path / "analysis"
     client = _analyze(odoo_sample_repo, analysis_dir)
-    response = client.get("/api/snapshot/modules", params={"commit": "deadbeef"})
+    response = client.get("/api/snapshot/table/modules", params={"commit": "deadbeef"})
     assert response.status_code == 404
 
     runner = CliRunner()
@@ -110,7 +110,7 @@ def test_unknown_commit_returns_404(odoo_sample_repo: Path, tmp_path: Path):
             str(analysis_dir),
             "query",
             "--metric",
-            "modules",
+            "snapshot-table-modules",
             "--commit",
             "deadbeef",
         ],

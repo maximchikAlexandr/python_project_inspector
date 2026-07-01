@@ -1,8 +1,8 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 
-export type AppTab = "snapshot" | "dashboard" | "structure" | "analytics" | "status";
+export type AppTab = "snapshot" | "dashboard";
 
-export type SnapshotTab = "lines" | "complexity" | "edges" | "manifest" | "failures";
+export type SnapshotTab = "lines" | "relations" | null;
 
 type PendingSnapshot = {
   commitHash: string;

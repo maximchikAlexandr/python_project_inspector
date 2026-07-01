@@ -29,26 +29,15 @@ const ALLOWED_COMMANDS = new Set([
 // Mirrors the Python QueryMethod enum (src/ppi/query/dispatch.py); update both
 // together if the CLI query surface grows (contracts/query-rpc.md is canonical).
 const ALLOWED_RPC_METHODS = new Set([
-  "status",
   "commits",
   "metrics/timeseries",
   "hotspots",
-  "catalog",
-  "edges",
-  "structure/timeseries",
-  "snapshot/modules",
-  "snapshot/files",
-  "snapshot/module",
-  "snapshot/file",
   "graph",
-  "edge-points",
-  "edge-points/batch",
-  "edge-evidence",
-  "models",
-  "depends",
-  "failures",
-  "relations/diff",
-  "edge-kinds/timeseries",
+  "ui/config",
+  "snapshot/table/modules",
+  "snapshot/table/files",
+  "snapshot/relations",
+  "project/info",
 ]);
 
 export interface DashboardPanelOptions {
@@ -143,8 +132,8 @@ export class DashboardPanel {
   /** Show a clear empty-state path when there is no completed analysis (FR-010). */
   private async checkEmptyState(): Promise<void> {
     try {
-      const status = await this.bridge.request<{ store_present: boolean; schema_compatible: boolean }>("status");
-      if (!status.store_present) {
+      const info = await this.bridge.request<{ store_present: boolean; schema_version?: number }>("project/info");
+      if (!info.store_present) {
         void vscode.window
           .showInformationMessage("PPI: no analysis results yet for this folder.", "Run analysis")
           .then((action) => {
@@ -152,7 +141,7 @@ export class DashboardPanel {
               void vscode.commands.executeCommand("ppi.analyze");
             }
           });
-      } else if (status.schema_compatible === false) {
+      } else if (info.schema_version === undefined) {
         void vscode.window
           .showWarningMessage("PPI: stored analysis is incompatible. Re-run with rebuild.", "Re-run")
           .then((action) => {

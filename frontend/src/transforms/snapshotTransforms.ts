@@ -1,36 +1,4 @@
-import { map, pipe, sortBy, sumBy, unique } from "remeda";
-
-import type { CommitRow, EdgeRow, GraphEdge, GraphNode, ModuleSnapshot } from "../api/client";
-import { lineCategoryTotal, type LineCategoryKey } from "../registry/odooProfile";
-
-export function graphEdgesToRows(edges: ReadonlyArray<GraphEdge>, commitHash: string): readonly EdgeRow[] {
-  return map(edges, (edge) => ({
-    source: edge.source,
-    target: edge.target,
-    score: edge.score,
-    kinds: edge.kinds ?? {},
-    kind_occurrence_count: edge.kind_occurrence_count,
-    evidence_count: edge.evidence_count,
-    breakdown: edge.breakdown,
-    commit_hash: edge.commit_hash ?? commitHash,
-  }));
-}
-
-export function visibleLinesTotal(
-  modules: ReadonlyArray<ModuleSnapshot>,
-  lineCategories: ReadonlySet<LineCategoryKey>,
-): number {
-  return sumBy(modules, (module) => lineCategoryTotal(module.line_categories, lineCategories));
-}
-
-export function moduleOptionsFromModules(modules: ReadonlyArray<ModuleSnapshot>): readonly string[] {
-  return pipe(
-    modules,
-    (items) => map(items, (module) => module.module_name),
-    (names) => unique(names),
-    sortBy((name) => name),
-  );
-}
+import type { CommitRow, GraphNode } from "../api/client";
 
 export function commitPositionLabel(commits: ReadonlyArray<CommitRow>, commitHash: string | null): string {
   if (!commitHash) {

@@ -116,7 +116,8 @@ class ModuleFacts:
     files: tuple[FileLineInfo, ...] = ()
     complexity: ComplexityMetrics = field(default_factory=ComplexityMetrics)
     python_complexity_files: tuple[FileComplexityInfo, ...] = ()
-    python_complexity_parse_errors: int = 0
+    metrics: dict[str, float] = field(default_factory=dict)
+    line_counts: dict[str, int] = field(default_factory=dict)
 
     def line_categories(self) -> Mapping[str, int]:
         """Return an immutable mapping of line-category key to value (F3)."""
@@ -453,7 +454,33 @@ def freeze_module_info(module: ModuleInfo) -> ModuleFacts:
         files=tuple(module.files),
         complexity=module.complexity,
         python_complexity_files=tuple(module.python_complexity_files),
-        python_complexity_parse_errors=module.python_complexity_parse_errors,
+        metrics={
+            "python_file_count": len(module.python_complexity_files),
+            "cyclomatic_count": module.complexity.cyclomatic.count,
+            "cyclomatic_mean": module.complexity.cyclomatic.mean,
+            "cyclomatic_median": module.complexity.cyclomatic.median,
+            "cyclomatic_p95": module.complexity.cyclomatic.p95,
+            "cyclomatic_max": module.complexity.cyclomatic.max,
+            "cognitive_count": module.complexity.cognitive.count,
+            "cognitive_mean": module.complexity.cognitive.mean,
+            "cognitive_median": module.complexity.cognitive.median,
+            "cognitive_p95": module.complexity.cognitive.p95,
+            "cognitive_max": module.complexity.cognitive.max,
+            "jones_count": module.complexity.jones.count,
+            "jones_mean": module.complexity.jones.mean,
+            "jones_median": module.complexity.jones.median,
+            "jones_p95": module.complexity.jones.p95,
+            "jones_max": module.complexity.jones.max,
+        },
+        line_counts={
+            "python_lines": module.python_lines,
+            "js_lines": module.js_lines,
+            "python_test_lines": module.python_test_lines,
+            "xml_lines": module.xml_lines,
+            "css_lines": module.css_lines,
+            "html_lines": module.html_lines,
+            "total_lines": module.total_lines,
+        },
     )
 
 

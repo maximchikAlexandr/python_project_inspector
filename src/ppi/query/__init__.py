@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from ppi.query.dispatch import QueryError, build_status, dispatch
+from ppi.query.dispatch import QueryError, build_project_info, dispatch
 
-__all__ = ["QueryError", "build_status", "dispatch"]
+__all__ = ["QueryError", "build_project_info", "dispatch"]

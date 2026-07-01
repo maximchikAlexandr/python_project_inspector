@@ -1,10 +1,7 @@
-export { categoryChartFromTimeseries } from "./timeseriesChart";
-
 export type DashboardLevel = "module" | "file";
-export type DashboardTab = "complexity" | "size" | "categories" | "hotspots";
+export type DashboardTab = "complexity" | "hotspots";
 
 export function normalizeDashboardSelection({
-  level,
   metric,
   activeTab,
 }: {
@@ -12,11 +9,5 @@ export function normalizeDashboardSelection({
   metric: string;
   activeTab: DashboardTab;
 }): { metric: string; activeTab: DashboardTab } {
-  if (level !== "file") {
-    return { metric, activeTab };
-  }
-  return {
-    metric: metric === "python_file_count" ? "cyclomatic" : metric,
-    activeTab: activeTab === "categories" ? "complexity" : activeTab,
-  };
+  return { metric, activeTab };
 }

@@ -1,11 +1,7 @@
-import { GRAPH_EDGE_KIND_KEYS, type GraphEdgeKind } from "../registry/odooProfile";
-
-export type { GraphEdgeKind };
-
 export type GraphSectionKey = "filters" | "display" | "forces" | "focus" | "stats";
 
 export type GraphFilterState = {
-  enabledEdgeKinds: Record<GraphEdgeKind, boolean>;
+  enabledEdgeKinds: Record<string, boolean>;
   minEdgeScore: number;
   includeZeroScore: boolean;
   focusEnabled: boolean;
@@ -18,9 +14,9 @@ export type GraphDisplayState = {
   showArrows: boolean;
   labelMode: "always" | "hover" | "selected" | "none";
   labelFadeThreshold: number;
-  nodeSizeMetric: "visible_lines" | "total_lines" | "method_count" | "score_in" | "score_out" | "fixed";
+  nodeSizeMetric: string;
   nodeSizeScale: number;
-  linkThicknessMetric: "total_points" | "selected_kind_points" | "score" | "fixed";
+  linkThicknessMetric: string;
   linkThicknessScale: number;
   fadeNonNeighbors: boolean;
   showEdgeLabels: boolean;
@@ -43,9 +39,7 @@ export type GraphSettings = {
   sectionsExpanded: Record<GraphSectionKey, boolean>;
 };
 
-export const DEFAULT_ENABLED_EDGE_KINDS: Record<GraphEdgeKind, boolean> = Object.fromEntries(
-  GRAPH_EDGE_KIND_KEYS.map((key) => [key, true]),
-) as Record<GraphEdgeKind, boolean>;
+export const DEFAULT_ENABLED_EDGE_KINDS: Record<string, boolean> = {};
 
 export const DEFAULT_FILTER_STATE: GraphFilterState = {
   enabledEdgeKinds: { ...DEFAULT_ENABLED_EDGE_KINDS },

@@ -13,25 +13,26 @@ import { formatCodeLines, formatMetricValue } from "../utils/metricFormat";
 
 /** Build the edge tooltip text (graph view). */
 export function buildEdgeTooltip(edge: GraphEdge): string {
-  return [
-    `${edge.source} -> ${edge.target}`,
-    `points=${edge.breakdown.total}`,
-    `reuse=${edge.breakdown.model_reuse}`,
-    `extend/method=${edge.breakdown.extension_or_method}`,
-    `view=${edge.breakdown.view}`,
-    `field/property=${edge.breakdown.field_property}`,
-  ].join(" | ");
+  const bd = edge.breakdown ?? {};
+  const parts = [`${edge.source} -> ${edge.target}`, `points=${bd.total ?? 0}`];
+  for (const [kind, value] of Object.entries(bd)) {
+    if (kind !== "total" && value) {
+      parts.push(`${kind}=${value}`);
+    }
+  }
+  return parts.join(" | ");
 }
 
 /** Build the node tooltip text (graph view). */
 export function buildNodeTooltip(node: GraphNode, visible: number): string {
+  const m = node.metrics ?? {};
   return [
     node.module_name,
     `visible=${formatCodeLines(visible)}`,
-    `CC med ${formatMetricValue(node.cyclomatic_median)}`,
-    `cognitive med ${formatMetricValue(node.cognitive_median)}`,
-    `Jones med ${formatMetricValue(node.jones_median)}`,
-    `methods=${node.method_count}`,
+    `CC med ${formatMetricValue(m.cyclomatic_median)}`,
+    `cognitive med ${formatMetricValue(m.cognitive_median)}`,
+    `Jones med ${formatMetricValue(m.jones_median)}`,
+    `methods=${m.method_count ?? 0}`,
   ].join(" | ");
 }
 

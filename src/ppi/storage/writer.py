@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -9,17 +10,6 @@ import duckdb
 
 from ppi.core.contracts import AnalysisBatch, AnalysisScope, Distribution, ProjectRef, RunMeta
 from ppi.storage import schema
-
-
-def _distribution_columns(prefix: str, distribution: Distribution) -> dict[str, float | int]:
-    """Flatten one Distribution into SQL column values."""
-    return {
-        f"{prefix}_count": distribution.count,
-        f"{prefix}_mean": distribution.mean,
-        f"{prefix}_median": distribution.median,
-        f"{prefix}_p95": distribution.p95,
-        f"{prefix}_max": distribution.max,
-    }
 
 
 def _epoch_to_timestamp(epoch: int) -> datetime:
@@ -57,12 +47,7 @@ class StoreWriter:
         """Remove all stored history rows."""
         for table in (
             "failure",
-            "coupling_edge_evidence",
-            "coupling_edge_breakdown",
-            "coupling_edge_kind",
             "coupling_edge",
-            "module_manifest_depend",
-            "module_model",
             "module_aggregate",
             "file_metric",
             "commit",
@@ -188,181 +173,58 @@ class StoreWriter:
                     ],
                 )
             for file_metric in batch.files:
-                cc = _distribution_columns("cc", file_metric.cyclomatic)
-                cog = _distribution_columns("cog", file_metric.cognitive)
-                jones = _distribution_columns("jones", file_metric.jones)
                 self._connection.execute(
                     """
                     INSERT OR REPLACE INTO file_metric (
-                        commit_hash, module_name, relative_path, category, lines,
-                        function_count, jones_line_count, top_folder,
-                        cc_count, cc_mean, cc_median, cc_p95, cc_max,
-                        cog_count, cog_mean, cog_median, cog_p95, cog_max,
-                        jones_count, jones_mean, jones_median, jones_p95, jones_max,
-                        parse_error
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        commit_hash, module_name, relative_path, line_category_id,
+                        metrics, line_counts, distributions
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         commit.commit_hash,
                         file_metric.module_name,
                         file_metric.relative_path,
-                        file_metric.category,
-                        file_metric.lines,
-                        file_metric.function_count,
-                        file_metric.jones_line_count,
-                        file_metric.top_folder,
-                        cc["cc_count"],
-                        cc["cc_mean"],
-                        cc["cc_median"],
-                        cc["cc_p95"],
-                        cc["cc_max"],
-                        cog["cog_count"],
-                        cog["cog_mean"],
-                        cog["cog_median"],
-                        cog["cog_p95"],
-                        cog["cog_max"],
-                        jones["jones_count"],
-                        jones["jones_mean"],
-                        jones["jones_median"],
-                        jones["jones_p95"],
-                        jones["jones_max"],
-                        file_metric.parse_error,
+                        file_metric.line_category_id,
+                        json.dumps(file_metric.metrics),
+                        json.dumps(file_metric.line_counts),
+                        json.dumps({k: {"count": v.count, "mean": v.mean, "median": v.median, "p95": v.p95, "max": v.max} for k, v in file_metric.distributions.items()}),
                     ],
                 )
             for module in batch.modules:
-                cc = _distribution_columns("cc", module.cyclomatic)
-                cog = _distribution_columns("cog", module.cognitive)
-                jones = _distribution_columns("jones", module.jones)
-                categories = module.line_categories
                 self._connection.execute(
                     """
                     INSERT OR REPLACE INTO module_aggregate (
                         commit_hash, module_name, total_lines,
-                        python_lines, js_lines, python_test_lines, xml_lines, css_lines, html_lines,
-                        python_file_count,
-                        cc_count, cc_mean, cc_median, cc_p95, cc_max,
-                        cog_count, cog_mean, cog_median, cog_p95, cog_max,
-                        jones_count, jones_mean, jones_median, jones_p95, jones_max,
-                        declared_models_count, inherited_models_count,
-                        python_complexity_parse_errors, score_out, score_in
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        metrics, line_counts, distributions
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     [
                         commit.commit_hash,
                         module.module_name,
                         module.total_lines,
-                        categories.get("python_lines", 0),
-                        categories.get("js_lines", 0),
-                        categories.get("python_test_lines", 0),
-                        categories.get("xml_lines", 0),
-                        categories.get("css_lines", 0),
-                        categories.get("html_lines", 0),
-                        module.python_file_count,
-                        cc["cc_count"],
-                        cc["cc_mean"],
-                        cc["cc_median"],
-                        cc["cc_p95"],
-                        cc["cc_max"],
-                        cog["cog_count"],
-                        cog["cog_mean"],
-                        cog["cog_median"],
-                        cog["cog_p95"],
-                        cog["cog_max"],
-                        jones["jones_count"],
-                        jones["jones_mean"],
-                        jones["jones_median"],
-                        jones["jones_p95"],
-                        jones["jones_max"],
-                        module.declared_models_count,
-                        module.inherited_models_count,
-                        module.python_complexity_parse_errors,
-                        module.score_out,
-                        module.score_in,
+                        json.dumps(module.metrics),
+                        json.dumps(module.line_counts),
+                        json.dumps({k: {"count": v.count, "mean": v.mean, "median": v.median, "p95": v.p95, "max": v.max} for k, v in module.distributions.items()}),
                     ],
                 )
-                for model_name in module.declared_models:
-                    self._connection.execute(
-                        """
-                        INSERT OR REPLACE INTO module_model (
-                            commit_hash, module_name, model_name, relation
-                        ) VALUES (?, ?, ?, ?)
-                        """,
-                        [commit.commit_hash, module.module_name, model_name, "declared"],
-                    )
-                for model_name in module.inherited_models:
-                    self._connection.execute(
-                        """
-                        INSERT OR REPLACE INTO module_model (
-                            commit_hash, module_name, model_name, relation
-                        ) VALUES (?, ?, ?, ?)
-                        """,
-                        [commit.commit_hash, module.module_name, model_name, "inherited"],
-                    )
-                for depends_on in module.manifest_depends:
-                    self._connection.execute(
-                        """
-                        INSERT OR REPLACE INTO module_manifest_depend (
-                            commit_hash, module_name, depends_on
-                        ) VALUES (?, ?, ?)
-                        """,
-                        [commit.commit_hash, module.module_name, depends_on],
-                    )
             for edge in batch.edges:
                 self._connection.execute(
                     """
                     INSERT OR REPLACE INTO coupling_edge (
-                        commit_hash, source_module, target_module, score
-                    ) VALUES (?, ?, ?, ?)
+                        commit_hash, source_module, target_module, score,
+                        kinds, kind_occurrence_count, breakdown
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    [commit.commit_hash, edge.source_module, edge.target_module, edge.score],
+                    [
+                        commit.commit_hash,
+                        edge.source_module,
+                        edge.target_module,
+                        edge.score,
+                        json.dumps(edge.kinds),
+                        sum(edge.kinds.values()),
+                        json.dumps(edge.breakdown) if edge.breakdown is not None else None,
+                    ],
                 )
-                for kind, count in edge.kinds.items():
-                    self._connection.execute(
-                        """
-                        INSERT OR REPLACE INTO coupling_edge_kind (
-                            commit_hash, source_module, target_module, kind, count
-                        ) VALUES (?, ?, ?, ?, ?)
-                        """,
-                        [commit.commit_hash, edge.source_module, edge.target_module, kind, count],
-                    )
-                if edge.breakdown is not None:
-                    self._connection.execute(
-                        """
-                        INSERT OR REPLACE INTO coupling_edge_breakdown (
-                            commit_hash, source_module, target_module,
-                            model_reuse, extension_or_method, view, field_property, total
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        [
-                            commit.commit_hash,
-                            edge.source_module,
-                            edge.target_module,
-                            edge.breakdown.model_reuse,
-                            edge.breakdown.extension_or_method,
-                            edge.breakdown.view,
-                            edge.breakdown.field_property,
-                            edge.breakdown.total,
-                        ],
-                    )
-                for item in edge.evidence:
-                    self._connection.execute(
-                        """
-                        INSERT INTO coupling_edge_evidence (
-                            commit_hash, source_module, target_module,
-                            kind, file_path, line, detail, source_quote
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        [
-                            commit.commit_hash,
-                            edge.source_module,
-                            edge.target_module,
-                            item.kind,
-                            item.file_path,
-                            item.line,
-                            item.detail,
-                            item.source_quote,
-                        ],
-                    )
             for failure in batch.failures:
                 self._connection.execute(
                     """

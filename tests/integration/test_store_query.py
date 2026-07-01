@@ -35,7 +35,7 @@ def test_analyze_persist_and_query(mini_repo: Path, tmp_path: Path):
             str(analysis_dir),
             "query",
             "--metric",
-            "complexity",
+            "cyclomatic",
             "--module",
             "demo_module",
             "--format",

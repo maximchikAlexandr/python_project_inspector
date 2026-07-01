@@ -4,53 +4,13 @@
  */
 import { describe, it, expect } from "vitest";
 
-import {
-  edgeKindOf,
-  graphBreakdownKindOf,
-  lineCategoryOf,
-  GraphResponseSchema,
-  SnapshotModulesResponseSchema,
-  StatusResponseSchema,
-} from "../api/schemas";
+import { GraphResponseSchema } from "../api/schemas";
 import {
   formatParseFailure,
   parseFailure,
   parseFailureFromRow,
   type ParseFailure,
 } from "./domain";
-
-describe("edgeKindOf", () => {
-  it("returns the typed kind for a known string", () => {
-    expect(edgeKindOf("python_method_call")).toBe("python_method_call");
-    expect(edgeKindOf("manifest_depends")).toBe("manifest_depends");
-  });
-
-  it("returns null for an unknown string", () => {
-    expect(edgeKindOf("not_a_kind")).toBeNull();
-    expect(edgeKindOf(123)).toBeNull();
-  });
-});
-
-describe("graphBreakdownKindOf", () => {
-  it("returns the typed group for a known string", () => {
-    expect(graphBreakdownKindOf("model_reuse")).toBe("model_reuse");
-  });
-
-  it("returns null for an unknown string", () => {
-    expect(graphBreakdownKindOf("nope")).toBeNull();
-  });
-});
-
-describe("lineCategoryOf", () => {
-  it("returns the typed category for a known string", () => {
-    expect(lineCategoryOf("python_lines")).toBe("python_lines");
-    expect(lineCategoryOf("html_lines")).toBe("html_lines");
-  });
-
-  it("returns null for an unknown string", () => {
-    expect(lineCategoryOf("ruby_lines")).toBeNull();
-  });
-});
 
 describe("parseFailure", () => {
   it("builds a ParseFailure with defaults for optional fields", () => {
@@ -123,28 +83,6 @@ describe("parseFailureFromRow", () => {
   });
 });
 
-describe("StatusResponseSchema", () => {
-  it("accepts a well-formed status payload", () => {
-    const parsed = StatusResponseSchema.safeParse({
-      project_id: "p",
-      branch: "main",
-      schema_version: 1,
-      expected_schema_version: 1,
-      schema_compatible: true,
-      store_present: true,
-      writer_active: false,
-      commit_count: 3,
-      last_run: null,
-    });
-    expect(parsed.success).toBe(true);
-  });
-
-  it("rejects a payload missing a required field", () => {
-    const parsed = StatusResponseSchema.safeParse({ project_id: "p" });
-    expect(parsed.success).toBe(false);
-  });
-});
-
 describe("GraphResponseSchema", () => {
   it("accepts a graph payload with nodes and edges", () => {
     const parsed = GraphResponseSchema.safeParse({
@@ -173,39 +111,6 @@ describe("GraphResponseSchema", () => {
       commit_hash: "h",
       nodes: [{ module_name: "m" }],
       edges: [],
-    });
-    expect(parsed.success).toBe(false);
-  });
-});
-
-describe("SnapshotModulesResponseSchema", () => {
-  it("accepts a modules snapshot payload", () => {
-    const parsed = SnapshotModulesResponseSchema.safeParse({
-      commit_hash: "h",
-      modules: [
-        {
-          module_name: "m",
-          total_lines: 1,
-          line_categories: {},
-          python_file_count: 0,
-          cyclomatic: { count: 0, mean: 0, median: 0, p95: 0, max: 0 },
-          cognitive: { count: 0, mean: 0, median: 0, p95: 0, max: 0 },
-          jones: { count: 0, mean: 0, median: 0, p95: 0, max: 0 },
-          declared_models: [],
-          inherited_models: [],
-          score_in: 0,
-          score_out: 0,
-          python_complexity_parse_errors: 0,
-        },
-      ],
-    });
-    expect(parsed.success).toBe(true);
-  });
-
-  it("rejects a modules payload missing distribution fields", () => {
-    const parsed = SnapshotModulesResponseSchema.safeParse({
-      commit_hash: "h",
-      modules: [{ module_name: "m" }],
     });
     expect(parsed.success).toBe(false);
   });

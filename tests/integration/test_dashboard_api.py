@@ -24,9 +24,9 @@ def test_dashboard_api_views_from_store(mini_repo: Path, tmp_path: Path):
     """All dashboard data endpoints return stored history for SC-004."""
     client = _client(mini_repo, tmp_path / "analysis")
 
-    status = client.get("/api/status")
-    assert status.status_code == 200
-    assert status.json()["commit_count"] == 2
+    info = client.get("/api/project/info")
+    assert info.status_code == 200
+    assert info.json()["commit_count"] == 2
 
     commits = client.get("/api/commits")
     assert commits.status_code == 200
@@ -34,34 +34,28 @@ def test_dashboard_api_views_from_store(mini_repo: Path, tmp_path: Path):
 
     module_ts = client.get(
         "/api/metrics/timeseries",
-        params={"level": "module", "metric": "cyclomatic", "name": "demo_module"},
+        params={"level": "module", "metric_id": "cyclomatic", "name": "demo_module"},
     )
     assert module_ts.status_code == 200
     assert module_ts.json()["series"][0]["points"]
 
     file_ts = client.get(
         "/api/metrics/timeseries",
-        params={"level": "file", "metric": "lines", "name": "demo_module/models.py"},
+        params={"level": "file", "metric_id": "lines", "name": "demo_module/models.py"},
     )
     assert file_ts.status_code == 200
     assert file_ts.json()["series"][0]["points"]
 
-    hotspots = client.get("/api/hotspots", params={"by": "growth", "level": "file"})
+    hotspots = client.get("/api/hotspots", params={"by": "growth", "level": "file", "metric_id": "cyclomatic"})
     assert hotspots.status_code == 200
     assert hotspots.json()["items"]
 
-    edges = client.get("/api/edges")
-    assert edges.status_code == 200
-    assert "edges" in edges.json()
-
-    structure = client.get("/api/structure/timeseries")
-    assert structure.status_code == 200
-    points = structure.json()["points"]
-    assert len(points) == 2
-    assert "edge_count" in points[0]
+    graph = client.get("/api/graph")
+    assert graph.status_code == 200
+    assert "nodes" in graph.json()
 
     unknown = client.get(
         "/api/metrics/timeseries",
-        params={"level": "module", "metric": "cyclomatic", "name": "missing"},
+        params={"level": "module", "metric_id": "cyclomatic", "name": "missing"},
     )
     assert unknown.status_code == 404

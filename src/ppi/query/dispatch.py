@@ -9,7 +9,7 @@ schema-error normalization, and raises ``QueryError`` for invalid input or
 missing data.
 
 Endpoint handlers live in :mod:`ppi.query._handlers`; this module owns only the
-method table, the router, ``build_status``, and error normalization. Method
+method table, the router, ``build_project_info``, and error normalization. Method
 names are typed via :class:`QueryMethod` (PPI-045) and dispatched via a typed
 table; string methods remain only at the HTTP/RPC decoder boundary.
 """
@@ -35,72 +35,39 @@ class QueryMethod(StrEnum):
     """
 
     COMMITS = "commits"
-    CATALOG = "catalog"
     METRICS_TIMESERIES = "metrics/timeseries"
     HOTSPOTS = "hotspots"
-    STRUCTURE_TIMESERIES = "structure/timeseries"
-    EDGES = "edges"
-    SNAPSHOT_MODULES = "snapshot/modules"
-    SNAPSHOT_FILES = "snapshot/files"
-    SNAPSHOT_MODULE = "snapshot/module"
-    SNAPSHOT_FILE = "snapshot/file"
     GRAPH = "graph"
-    EDGE_POINTS = "edge-points"
-    EDGE_POINTS_BATCH = "edge-points/batch"
-    EDGE_EVIDENCE = "edge-evidence"
-    MODELS = "models"
-    DEPENDS = "depends"
-    FAILURES = "failures"
-    EDGE_KIND_TIMESERIES = "edge-kinds/timeseries"
-    RELATIONS_DIFF = "relations/diff"
-    STATUS = "status"
+    UI_CONFIG = "ui/config"
+    SNAPSHOT_TABLE_MODULES = "snapshot/table/modules"
+    SNAPSHOT_TABLE_FILES = "snapshot/table/files"
+    SNAPSHOT_RELATIONS = "snapshot/relations"
+    PROJECT_INFO = "project/info"
 
 
 DATA_METHODS = {
     QueryMethod.COMMITS,
-    QueryMethod.CATALOG,
     QueryMethod.METRICS_TIMESERIES,
     QueryMethod.HOTSPOTS,
-    QueryMethod.STRUCTURE_TIMESERIES,
-    QueryMethod.EDGES,
-    QueryMethod.SNAPSHOT_MODULES,
-    QueryMethod.SNAPSHOT_FILES,
-    QueryMethod.SNAPSHOT_MODULE,
-    QueryMethod.SNAPSHOT_FILE,
     QueryMethod.GRAPH,
-    QueryMethod.EDGE_POINTS,
-    QueryMethod.EDGE_POINTS_BATCH,
-    QueryMethod.EDGE_EVIDENCE,
-    QueryMethod.MODELS,
-    QueryMethod.DEPENDS,
-    QueryMethod.FAILURES,
-    QueryMethod.EDGE_KIND_TIMESERIES,
-    QueryMethod.RELATIONS_DIFF,
+    QueryMethod.UI_CONFIG,
+    QueryMethod.SNAPSHOT_TABLE_MODULES,
+    QueryMethod.SNAPSHOT_TABLE_FILES,
+    QueryMethod.SNAPSHOT_RELATIONS,
 }
 
-ALL_METHODS = DATA_METHODS | {QueryMethod.STATUS}
+ALL_METHODS = DATA_METHODS | {QueryMethod.PROJECT_INFO}
 
 # Typed handler table: QueryMethod -> handler callable (no string keys).
 _METHOD_TABLE: dict[QueryMethod, Any] = {
     QueryMethod.COMMITS: h.commits,
-    QueryMethod.CATALOG: h.catalog,
     QueryMethod.METRICS_TIMESERIES: h.metrics_timeseries,
     QueryMethod.HOTSPOTS: h.hotspots,
-    QueryMethod.STRUCTURE_TIMESERIES: h.structure_timeseries,
-    QueryMethod.EDGES: h.edges,
-    QueryMethod.SNAPSHOT_MODULES: h.snapshot_modules,
-    QueryMethod.SNAPSHOT_FILES: h.snapshot_files,
-    QueryMethod.SNAPSHOT_MODULE: h.snapshot_module,
-    QueryMethod.SNAPSHOT_FILE: h.snapshot_file,
     QueryMethod.GRAPH: h.graph,
-    QueryMethod.EDGE_POINTS: h.edge_points,
-    QueryMethod.EDGE_POINTS_BATCH: h.edge_points_batch,
-    QueryMethod.EDGE_EVIDENCE: h.edge_evidence,
-    QueryMethod.MODELS: h.models,
-    QueryMethod.DEPENDS: h.depends,
-    QueryMethod.FAILURES: h.failures,
-    QueryMethod.EDGE_KIND_TIMESERIES: h.edge_kind_timeseries,
-    QueryMethod.RELATIONS_DIFF: h.relations_diff,
+    QueryMethod.UI_CONFIG: h.ui_config,
+    QueryMethod.SNAPSHOT_TABLE_MODULES: h.snapshot_table_modules,
+    QueryMethod.SNAPSHOT_TABLE_FILES: h.snapshot_table_files,
+    QueryMethod.SNAPSHOT_RELATIONS: h.snapshot_relations,
 }
 
 
@@ -112,57 +79,37 @@ def parse_query_method(method: str) -> QueryMethod | None:
         return None
 
 
-def build_status(
+def build_project_info(
     *,
     reader: StoreReader | None,
     store_present: bool,
     writer_active: bool,
     schema_error: schema.SchemaIncompatibleError | None = None,
-) -> schemas.StatusResponse:
-    """Build the status response (mirror of the HTTP ``/status`` endpoint)."""
-    resolved_version = schema_error.stored if schema_error is not None else schema.SCHEMA_VERSION
-    compatible = schema_error is None
-    if reader is None:
-        return schemas.StatusResponse(
+) -> schemas.ProjectInfoResponse:
+    """Build the project info response."""
+    if schema_error is not None:
+        return schemas.ProjectInfoResponse(
             project_id=None,
             branch=None,
-            schema_version=resolved_version,
-            expected_schema_version=schema.SCHEMA_VERSION,
-            schema_compatible=compatible,
-            store_present=store_present,
-            writer_active=writer_active,
             commit_count=0,
-            last_run=None,
-            run_failures=[],
+            schema_version=schema_error.stored,
+            store_present=store_present,
+        )
+    if reader is None:
+        return schemas.ProjectInfoResponse(
+            project_id=None,
+            branch=None,
+            commit_count=0,
+            schema_version=schema.SCHEMA_VERSION,
+            store_present=store_present,
         )
     project = reader.get_project()
-    last_run = reader.last_run()
-    run_failures: list[schemas.RunFailureResponse] = []
-    if last_run and last_run["commits_failed"] > 0:
-        run_failures = [
-            schemas.RunFailureResponse(**row) for row in reader.failures_for_run(last_run["run_id"])
-        ]
-    scope = None
-    if project is not None:
-        scope = schemas.ScopeResponse(
-            project_label=project.scope.project_label,
-            module_prefixes=list(project.scope.module_prefixes),
-            include_modules=list(project.scope.include_modules),
-            all_modules=project.scope.all_modules,
-            repo_path=project.repo_path,
-        )
-    return schemas.StatusResponse(
+    return schemas.ProjectInfoResponse(
         project_id=project.project_id if project is not None else None,
         branch=project.branch if project is not None else None,
-        schema_version=reader.schema_version(),
-        expected_schema_version=schema.SCHEMA_VERSION,
-        schema_compatible=True,
-        store_present=store_present,
-        writer_active=writer_active,
         commit_count=reader.commit_count(),
-        last_run=schemas.LastRunResponse(**last_run) if last_run else None,
-        run_failures=run_failures,
-        scope=scope,
+        schema_version=reader.schema_version(),
+        store_present=store_present,
     )
 
 
@@ -177,7 +124,7 @@ def dispatch(
 ) -> Any:
     """Resolve one dashboard read to its schema model(s) or raise ``QueryError``.
 
-    Owns every method including ``status``. The caller opens the reader (or
+    Owns every method including ``project/info``. The caller opens the reader (or
     captures a schema error) and passes transport-specific context; this module
     centralizes method dispatch via a typed :class:`QueryMethod` enum, the
     writer-lock check, and error normalization.
@@ -188,8 +135,8 @@ def dispatch(
             QueryErrorCode.METHOD_NOT_FOUND, f"unknown method: {method}", http_status=404
         )
     match typed:
-        case QueryMethod.STATUS:
-            return build_status(
+        case QueryMethod.PROJECT_INFO:
+            return build_project_info(
                 reader=reader,
                 store_present=store_present,
                 writer_active=writer_active,

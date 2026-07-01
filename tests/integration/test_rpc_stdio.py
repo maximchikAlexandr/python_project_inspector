@@ -38,13 +38,13 @@ def test_rpc_store_not_found_when_no_store(mini_repo: Path, tmp_path: Path):
 
 
 def test_rpc_status_correlates_by_id(mini_repo: Path, tmp_path: Path):
-    """Responses carry the request id even for the status method with no store."""
+    """Responses carry the request id even for the project/info method with no store."""
     resps = _rpc(
         mini_repo,
         tmp_path / "analysis",
         [
-            {"id": 41, "method": "status", "params": {}},
-            {"id": 42, "method": "status", "params": {}},
+            {"id": 41, "method": "project/info", "params": {}},
+            {"id": 42, "method": "project/info", "params": {}},
         ],
     )
     assert [r["id"] for r in resps] == [41, 42]

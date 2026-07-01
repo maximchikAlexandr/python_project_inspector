@@ -10,11 +10,10 @@ from ppi.core.contracts import (
     AnalysisBatch,
     CommitRef,
     CouplingEdge,
-    EdgeBreakdown,
-    Evidence,
     batch_from_json,
     batch_to_json,
 )
+from ppi.core.odoo.facts import breakdown_from_kind_counts
 from ppi.core.odoo.pipeline import (
     CouplingEdgeAccumulator as PipelineCouplingEdge,
 )
@@ -23,7 +22,6 @@ from ppi.core.odoo.pipeline import (
     analyze_python_complexity_for_module,
     build_report_config,
     discover_analysis_artifacts,
-    edge_breakdown,
     enrich_modules_with_code_analysis,
     file_top_folder,
     module_python_file_count,
@@ -33,13 +31,19 @@ from ppi.core.odoo.pipeline import (
 
 
 def test_edge_breakdown_total_invariant():
-    """Breakdown categories sum to total."""
+    """Breakdown totals equal the edge score."""
+    from ppi.core.odoo.facts import EdgeKindCount
+    from ppi.core.value_objects import EdgeKind
+
     edge = PipelineCouplingEdge(source_module="a", target_module="b")
     edge.add("python_many2one", Path("a/models.py"), 10, "field -> model")
     edge.add("xml_inherit_id", Path("a/views.xml"), 5, "inherit")
-    breakdown = edge_breakdown(edge)
-    assert breakdown.total == breakdown.model_reuse + breakdown.view
-    assert edge.score == breakdown.total
+    counts = tuple(
+        EdgeKindCount(kind=EdgeKind(k), count=c)
+        for k, c in edge.kind_counter.items()
+    )
+    bd = breakdown_from_kind_counts(counts)
+    assert sum(bd.values()) == edge.score
 
 
 def test_file_top_folder_module_root():
@@ -58,8 +62,8 @@ def test_module_python_file_count():
     assert module_python_file_count(module) == 0
 
 
-def test_evidence_roundtrip_via_batch_json():
-    """Evidence survives AnalysisBatch JSON encode/decode."""
+def test_breakdown_roundtrip_via_batch_json():
+    """Breakdown dict survives AnalysisBatch JSON encode/decode."""
     batch = AnalysisBatch(
         commit=CommitRef(
             commit_hash="abc",
@@ -78,29 +82,15 @@ def test_evidence_roundtrip_via_batch_json():
                 target_module="b",
                 score=2,
                 kinds={"python_many2one": 2},
-                breakdown=EdgeBreakdown(
-                    model_reuse=2,
-                    extension_or_method=0,
-                    view=0,
-                    field_property=0,
-                    total=2,
-                ),
-                evidence=(
-                    Evidence(
-                        kind="python_many2one",
-                        file_path="a/models.py",
-                        line=10,
-                        detail="field -> model",
-                    ),
-                ),
+                breakdown={"model_reuse": 2, "view": 0, "extension_or_method": 0, "field_property": 0},
             ),
         ),
         failures=(),
     )
     restored = batch_from_json(batch_to_json(batch))
     assert len(restored.edges) == 1
-    assert restored.edges[0].evidence[0].kind == "python_many2one"
-    assert restored.edges[0].evidence[0].line == 10
+    assert restored.edges[0].breakdown == {"model_reuse": 2, "view": 0, "extension_or_method": 0, "field_property": 0}
+    assert restored.edges[0].score == 2
 
 
 def test_report_config_to_scope_normalization():

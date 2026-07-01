@@ -1,5 +1,3 @@
-import type { MetricDistribution } from "../api/client";
-
 export function formatCodeLines(value: number): string {
   return Number(value || 0).toLocaleString("en-US");
 }
@@ -21,16 +19,4 @@ export function formatMetricValue(value: number): string {
     return String(number);
   }
   return number.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
-}
-
-export function formatStatsLine(dist: MetricDistribution | null | undefined): string {
-  if (!dist || !dist.count) {
-    return "-";
-  }
-  return [
-    `med ${formatMetricValue(dist.median)}`,
-    `P95 ${formatMetricValue(dist.p95)}`,
-    `max ${formatMetricValue(dist.max)}`,
-    `n=${dist.count}`,
-  ].join(" · ");
 }

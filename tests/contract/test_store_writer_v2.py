@@ -1,4 +1,4 @@
-"""Contract tests for schema v2 writer persistence."""
+"""Contract tests for schema v3 writer persistence."""
 
 from pathlib import Path
 
@@ -9,8 +9,6 @@ from ppi.core.contracts import (
     CommitRef,
     CouplingEdge,
     Distribution,
-    EdgeBreakdown,
-    Evidence,
     FileMetrics,
     ModuleAggregate,
 )
@@ -41,8 +39,8 @@ def _distribution(value: float) -> Distribution:
     )
 
 
-def test_write_batch_inserts_v2_rows(tmp_path: Path):
-    """write_batch persists breakdown, evidence, model, and manifest rows."""
+def test_write_batch_inserts_v3_rows(tmp_path: Path):
+    """write_batch persists JSON-column module/edge rows."""
     store_file = tmp_path / "history.duckdb"
     writer = StoreWriter(store_file)
     try:
@@ -52,33 +50,19 @@ def test_write_batch_inserts_v2_rows(tmp_path: Path):
                 FileMetrics(
                     module_name="base_module",
                     relative_path="models/partner.py",
-                    category="python",
-                    lines=10,
-                    function_count=1,
-                    jones_line_count=1,
-                    cyclomatic=_distribution(1.0),
-                    cognitive=_distribution(1.0),
-                    jones=_distribution(1.0),
-                    top_folder="models",
+                    line_category_id="python_lines",
+                    metrics={"cyclomatic_mean": 1.0},
+                    line_counts={"lines": 10, "function_count": 1, "jones_line_count": 1},
+                    distributions={"cyclomatic": _distribution(1.0)},
                 ),
             ),
             modules=(
                 ModuleAggregate(
                     module_name="base_module",
                     total_lines=10,
-                    line_categories={"python_lines": 10},
-                    cyclomatic=_distribution(1.0),
-                    cognitive=_distribution(1.0),
-                    jones=_distribution(1.0),
-                    declared_models_count=1,
-                    inherited_models_count=0,
-                    python_complexity_parse_errors=0,
-                    score_out=0,
-                    score_in=1,
-                    python_file_count=1,
-                    declared_models=("base.partner",),
-                    inherited_models=(),
-                    manifest_depends=("linked_module",),
+                    metrics={"cyclomatic_mean": 1.0, "python_file_count": 1},
+                    line_counts={"python_lines": 10},
+                    distributions={"cyclomatic": _distribution(1.0)},
                 ),
             ),
             edges=(
@@ -87,21 +71,7 @@ def test_write_batch_inserts_v2_rows(tmp_path: Path):
                     target_module="base_module",
                     score=2,
                     kinds={"python_many2one": 2},
-                    breakdown=EdgeBreakdown(
-                        model_reuse=2,
-                        extension_or_method=0,
-                        view=0,
-                        field_property=0,
-                        total=2,
-                    ),
-                    evidence=(
-                        Evidence(
-                            kind="python_many2one",
-                            file_path="linked_module/models/order.py",
-                            line=12,
-                            detail="partner_id",
-                        ),
-                    ),
+                    breakdown={"model_reuse": 2},
                 ),
             ),
             failures=(),
@@ -113,70 +83,38 @@ def test_write_batch_inserts_v2_rows(tmp_path: Path):
     connection = duckdb.connect(str(store_file), read_only=True)
     try:
         commit_hash = _commit().commit_hash
-        breakdown = connection.execute(
+
+        edge = connection.execute(
             """
-            SELECT model_reuse, extension_or_method, view, field_property, total
-            FROM coupling_edge_breakdown
+            SELECT score, kinds, breakdown
+            FROM coupling_edge
             WHERE commit_hash = ? AND source_module = ? AND target_module = ?
             """,
             [commit_hash, "linked_module", "base_module"],
         ).fetchone()
-        assert breakdown == (2, 0, 0, 0, 2)
+        assert edge is not None
+        assert edge[0] == 2
 
-        evidence = connection.execute(
-            """
-            SELECT kind, file_path, line, detail, source_quote
-            FROM coupling_edge_evidence
-            WHERE commit_hash = ? AND source_module = ? AND target_module = ?
-            """,
-            [commit_hash, "linked_module", "base_module"],
-        ).fetchone()
-        assert evidence == (
-            "python_many2one",
-            "linked_module/models/order.py",
-            12,
-            "partner_id",
-            "",
-        )
-
-        models = connection.execute(
-            """
-            SELECT model_name, relation
-            FROM module_model
-            WHERE commit_hash = ? AND module_name = ?
-            ORDER BY model_name
-            """,
-            [commit_hash, "base_module"],
-        ).fetchall()
-        assert models == [("base.partner", "declared")]
-
-        depends = connection.execute(
-            """
-            SELECT depends_on
-            FROM module_manifest_depend
-            WHERE commit_hash = ? AND module_name = ?
-            """,
-            [commit_hash, "base_module"],
-        ).fetchone()
-        assert depends == ("linked_module",)
-
-        file_row = connection.execute(
-            """
-            SELECT top_folder
-            FROM file_metric
-            WHERE commit_hash = ? AND module_name = ? AND relative_path = ?
-            """,
-            [commit_hash, "base_module", "models/partner.py"],
-        ).fetchone()
         module_row = connection.execute(
             """
-            SELECT python_file_count
+            SELECT total_lines, metrics, line_counts
             FROM module_aggregate
             WHERE commit_hash = ? AND module_name = ?
             """,
             [commit_hash, "base_module"],
         ).fetchone()
-        assert file_row == ("models",)
-        assert module_row == (1,)
+        assert module_row is not None
+        assert module_row[0] == 10
+
+        file_row = connection.execute(
+            """
+            SELECT line_category_id, metrics, line_counts
+            FROM file_metric
+            WHERE commit_hash = ? AND module_name = ? AND relative_path = ?
+            """,
+            [commit_hash, "base_module", "models/partner.py"],
+        ).fetchone()
+        assert file_row is not None
+        assert file_row[0] == "python_lines"
     finally:
         connection.close()

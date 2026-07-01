@@ -30,20 +30,19 @@ def _analyze_fixture(mini_repo: Path, analysis_dir: Path) -> TestClient:
     return TestClient(create_app(store_path(mini_repo), writer_lock_path(mini_repo)))
 
 
-def test_http_status_without_store(tmp_path: Path):
-    """Status endpoint works before any analysis run."""
+def test_http_project_info_without_store(tmp_path: Path):
+    """project/info endpoint works before any analysis run."""
     repo = tmp_path / "repo"
     repo.mkdir()
     analysis_dir = tmp_path / "analysis"
     analysis_dir.mkdir()
     client = TestClient(create_app(store_path(repo), writer_lock_path(repo)))
-    status = client.get("/api/status")
-    assert status.status_code == 200
-    body = status.json()
+    info = client.get("/api/project/info")
+    assert info.status_code == 200
+    body = info.json()
     assert body["store_present"] is False
-    assert body["schema_version"] == 2
-    assert body["expected_schema_version"] == 2
-    assert body["schema_compatible"] is True
+    assert body["schema_version"] == 3
+    assert body["commit_count"] == 0
 
 
 def test_http_store_missing_returns_503(tmp_path: Path):
@@ -73,17 +72,15 @@ def test_http_locked_store_returns_409(mini_repo: Path, tmp_path: Path):
         lock_file.unlink(missing_ok=True)
 
 
-def test_http_status_and_commits(mini_repo: Path, tmp_path: Path):
-    """API exposes status and commit timeline endpoints."""
+def test_http_project_info_and_commits(mini_repo: Path, tmp_path: Path):
+    """API exposes project/info and commit timeline endpoints."""
     client = _analyze_fixture(mini_repo, tmp_path / "analysis")
-    status = client.get("/api/status")
-    assert status.status_code == 200
-    body = status.json()
+    info = client.get("/api/project/info")
+    assert info.status_code == 200
+    body = info.json()
     assert body["commit_count"] == 2
     assert body["store_present"] is True
-    assert body["schema_version"] == 2
-    assert body["expected_schema_version"] == 2
-    assert body["schema_compatible"] is True
+    assert body["schema_version"] == 3
     assert body["project_id"]
     assert body["branch"]
     commits = client.get("/api/commits")
@@ -96,7 +93,7 @@ def test_http_timeseries_module_and_file(mini_repo: Path, tmp_path: Path):
     client = _analyze_fixture(mini_repo, tmp_path / "analysis")
     module = client.get(
         "/api/metrics/timeseries",
-        params={"level": "module", "metric": "cyclomatic", "name": "demo_module"},
+        params={"level": "module", "metric_id": "cyclomatic", "name": "demo_module"},
     )
     assert module.status_code == 200
     module_body = module.json()
@@ -108,7 +105,7 @@ def test_http_timeseries_module_and_file(mini_repo: Path, tmp_path: Path):
         "/api/metrics/timeseries",
         params={
             "level": "file",
-            "metric": "lines",
+            "metric_id": "lines",
             "name": "demo_module/models.py",
         },
     )
@@ -118,15 +115,15 @@ def test_http_timeseries_module_and_file(mini_repo: Path, tmp_path: Path):
     assert file_body["series"][0]["name"] == "demo_module/models.py"
 
 
-def test_http_hotspots_and_edges(mini_repo: Path, tmp_path: Path):
-    """Hotspots and coupling edges endpoints match contract shapes."""
+def test_http_hotspots_and_graph(mini_repo: Path, tmp_path: Path):
+    """Hotspots and graph endpoints match contract shapes."""
     client = _analyze_fixture(mini_repo, tmp_path / "analysis")
-    catalog = client.get("/api/catalog", params={"level": "module"})
-    assert catalog.status_code == 200
-    assert "demo_module" in catalog.json()["names"]
+    config = client.get("/api/ui/config")
+    assert config.status_code == 200
+    assert isinstance(config.json()["dashboard_metrics"], list)
     hotspots = client.get(
         "/api/hotspots",
-        params={"level": "module", "metric": "cyclomatic", "by": "growth", "limit": 5},
+        params={"level": "module", "metric_id": "cyclomatic", "by": "growth", "limit": 5},
     )
     assert hotspots.status_code == 200
     hotspot_body = hotspots.json()
@@ -134,29 +131,20 @@ def test_http_hotspots_and_edges(mini_repo: Path, tmp_path: Path):
     assert isinstance(hotspot_body["items"], list)
     assert hotspot_body["items"][0]["name"] == "demo_module"
 
-    edges = client.get("/api/edges", params={"min_score": 0})
-    assert edges.status_code == 200
-    edge_body = edges.json()
-    assert "commit_hash" in edge_body
-    assert isinstance(edge_body["edges"], list)
+    graph = client.get("/api/graph", params={"include_zero_score": "false"})
+    assert graph.status_code == 200
+    graph_body = graph.json()
+    assert "commit_hash" in graph_body
+    assert isinstance(graph_body["nodes"], list)
+    assert isinstance(graph_body["edges"], list)
 
 
-def test_http_structure_timeseries(mini_repo: Path, tmp_path: Path):
-    """Structure timeseries endpoint returns per-commit coupling summary."""
+def test_http_graph_unknown_commit_returns_404(mini_repo: Path, tmp_path: Path):
+    """Unknown commit hash on graph returns 404."""
     client = _analyze_fixture(mini_repo, tmp_path / "analysis")
-    response = client.get("/api/structure/timeseries")
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body["points"]) == 2
-    assert body["points"][0]["edge_count"] >= 0
-
-
-def test_http_edges_unknown_commit_returns_404(mini_repo: Path, tmp_path: Path):
-    """Unknown commit hash on edges returns 404."""
-    client = _analyze_fixture(mini_repo, tmp_path / "analysis")
-    response = client.get("/api/edges", params={"commit": "deadbeef"})
+    response = client.get("/api/graph", params={"commit": "deadbeef"})
     assert response.status_code == 404
-    assert "unknown commit" in response.json()["detail"]
+    assert "unknown commit" in response.json()["detail"].lower()
 
 
 def test_http_unknown_module_returns_404(mini_repo: Path, tmp_path: Path):
@@ -164,7 +152,7 @@ def test_http_unknown_module_returns_404(mini_repo: Path, tmp_path: Path):
     client = _analyze_fixture(mini_repo, tmp_path / "analysis")
     response = client.get(
         "/api/metrics/timeseries",
-        params={"level": "module", "metric": "cyclomatic", "name": "nonexistent"},
+        params={"level": "module", "metric_id": "cyclomatic", "name": "nonexistent"},
     )
     assert response.status_code == 404
     assert "unknown module" in response.json()["detail"]

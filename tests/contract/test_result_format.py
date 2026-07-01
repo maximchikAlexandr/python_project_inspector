@@ -26,14 +26,10 @@ def test_batch_jsonl_roundtrip():
             FileMetrics(
                 module_name="demo_module",
                 relative_path="models.py",
-                category="python_lines",
-                lines=3,
-                function_count=1,
-                jones_line_count=2,
-                cyclomatic=Distribution(1, 1.0, 1.0, 1.0, 1.0),
-                cognitive=Distribution(1, 1.0, 1.0, 1.0, 1.0),
-                jones=Distribution(1, 1.0, 1.0, 1.0, 1.0),
-                parse_error=None,
+                line_category_id="python_lines",
+                metrics={"cyclomatic_mean": 1.0},
+                line_counts={"lines": 3, "function_count": 1, "jones_line_count": 2},
+                distributions={"cyclomatic": Distribution(1, 1.0, 1.0, 1.0, 1.0)},
             ),
         ),
         modules=(),
@@ -43,4 +39,4 @@ def test_batch_jsonl_roundtrip():
     restored = batch_from_json(batch_to_json(batch))
     assert restored.commit.commit_hash == "abc"
     assert restored.files[0].relative_path == "models.py"
-    assert restored.files[0].lines == 3
+    assert restored.files[0].line_counts["lines"] == 3

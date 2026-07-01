@@ -38,7 +38,7 @@ def test_quickstart_analyze_query_serve_flow(mini_repo: Path, tmp_path: Path):
             str(analysis_dir),
             "query",
             "--metric",
-            "complexity",
+            "cyclomatic",
             "--module",
             "demo_module",
             "--format",
@@ -62,8 +62,8 @@ def test_quickstart_analyze_query_serve_flow(mini_repo: Path, tmp_path: Path):
     from ppi.server.app import _static_dir, create_app
 
     client = TestClient(create_app(store_path(mini_repo), writer_lock_path(mini_repo)))
-    assert client.get("/api/status").status_code == 200
-    assert client.get("/api/catalog?level=module").status_code == 200
+    assert client.get("/api/project/info").status_code == 200
+    assert client.get("/api/ui/config").status_code == 200
     assert client.get("/api/hotspots").status_code == 200
     static = _static_dir()
     assert static is not None

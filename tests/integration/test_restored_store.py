@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -31,7 +32,7 @@ def _analyze(repo: Path, analysis_dir: Path) -> None:
 
 
 def test_restored_metrics_persisted(odoo_sample_repo: Path, tmp_path: Path):
-    """Analyze odoo_sample and assert v2 rows exist in DuckDB."""
+    """Analyze odoo_sample and assert v3 rows exist in DuckDB."""
     analysis_dir = tmp_path / "analysis"
     _analyze(odoo_sample_repo, analysis_dir)
     store_file = store_path(odoo_sample_repo)
@@ -41,73 +42,43 @@ def test_restored_metrics_persisted(odoo_sample_repo: Path, tmp_path: Path):
         commit_hash = connection.execute(
             "SELECT commit_hash FROM commit ORDER BY commit_order DESC LIMIT 1",
         ).fetchone()[0]
-        evidence = connection.execute(
+        edge = connection.execute(
             """
-            SELECT kind, file_path, line, detail
-            FROM coupling_edge_evidence
-            WHERE commit_hash = ? AND source_module = 'linked_module'
-              AND target_module = 'base_module'
-            """,
-            [commit_hash],
-        ).fetchall()
-        assert evidence
-        breakdown = connection.execute(
-            """
-            SELECT model_reuse, extension_or_method, view, field_property, total
-            FROM coupling_edge_breakdown
+            SELECT score, kinds, breakdown
+            FROM coupling_edge
             WHERE commit_hash = ? AND source_module = 'linked_module'
               AND target_module = 'base_module'
             """,
             [commit_hash],
         ).fetchone()
-        assert breakdown is not None
-        assert breakdown[4] >= 1
-        models = connection.execute(
+        assert edge is not None
+        assert edge[0] >= 1
+        kinds = json.loads(edge[1])
+        assert kinds
+        module_row = connection.execute(
             """
-            SELECT model_name, relation
-            FROM module_model
+            SELECT total_lines, metrics, line_counts
+            FROM module_aggregate
             WHERE commit_hash = ? AND module_name = 'base_module'
-            ORDER BY model_name
             """,
             [commit_hash],
-        ).fetchall()
-        assert ("base.partner", "declared") in models
-        top_folder = connection.execute(
+        ).fetchone()
+        assert module_row is not None
+        assert module_row[0] >= 1
+        metrics = json.loads(module_row[1])
+        assert "python_file_count" in metrics
+        file_row = connection.execute(
             """
-            SELECT top_folder FROM file_metric
+            SELECT line_category_id, metrics, line_counts
+            FROM file_metric
             WHERE commit_hash = ? AND module_name = 'base_module'
               AND relative_path LIKE 'models/%'
             LIMIT 1
             """,
             [commit_hash],
         ).fetchone()
-        assert top_folder is not None
-        assert top_folder[0] == "models"
-        python_file_count = connection.execute(
-            """
-            SELECT python_file_count FROM module_aggregate
-            WHERE commit_hash = ? AND module_name = 'base_module'
-            """,
-            [commit_hash],
-        ).fetchone()[0]
-        assert python_file_count >= 1
-        kind_rows = connection.execute(
-            """
-            SELECT k.kind, e.score
-            FROM coupling_edge_kind k
-            JOIN coupling_edge e
-              ON e.commit_hash = k.commit_hash
-             AND e.source_module = k.source_module
-             AND e.target_module = k.target_module
-            WHERE k.commit_hash = ?
-              AND k.source_module = 'linked_module'
-              AND k.target_module = 'base_module'
-            """,
-            [commit_hash],
-        ).fetchall()
-        kinds = {kind for kind, _ in kind_rows}
-        assert "manifest_depends" in kinds
-        assert any(kind.startswith("security_") for kind in kinds)
+        assert file_row is not None
+        assert file_row[0] == "python_lines"
     finally:
         connection.close()
 

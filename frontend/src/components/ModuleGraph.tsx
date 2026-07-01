@@ -12,14 +12,9 @@ import { Text } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { GraphEdge, GraphNode } from "../api/client";
-import {
-  lineCategoryTotal,
-  textColorForComplexityRatio,
-  type BrightnessCriterion,
-  type LineCategoryKey,
-} from "../registry/odooProfile";
+import { lineCategoryTotal, textColorForComplexityRatio } from "../registry/odooProfile";
 import { formatCodeLines } from "../utils/metricFormat";
-import type { GraphDisplayState, GraphEdgeKind, GraphForceState } from "./graphSettingsTypes";
+import type { GraphDisplayState, GraphForceState } from "./graphSettingsTypes";
 import type { LayoutCommandKind, ZoomCommandKind } from "./GraphSettingsPanel";
 import type { LayoutNodePosition } from "../domain/layoutCodec";
 import { buildModuleGraphViewModel } from "./graphViewModel";
@@ -63,9 +58,9 @@ type ModuleGraphProps = {
   readonly edges: readonly GraphEdge[];
   readonly display: GraphDisplayState;
   readonly force: GraphForceState;
-  readonly enabledEdgeKinds: Readonly<Record<GraphEdgeKind, boolean>>;
-  readonly brightnessCriteria: ReadonlySet<BrightnessCriterion>;
-  readonly lineCategories: ReadonlySet<LineCategoryKey>;
+  readonly enabledEdgeKinds: Readonly<Record<string, boolean>>;
+  readonly brightnessCriteria: ReadonlySet<string>;
+  readonly lineCategories: ReadonlySet<string>;
   readonly selectedModule: string | null;
   readonly onSelectModule: (name: string | null) => void;
   readonly pinned: Readonly<Record<string, boolean>>;
@@ -195,7 +190,6 @@ export function ModuleGraph({
   display,
   force,
   enabledEdgeKinds,
-  brightnessCriteria,
   lineCategories,
   selectedModule,
   onSelectModule,
@@ -239,8 +233,8 @@ export function ModuleGraph({
   );
 
   const vm = useMemo(
-    () => buildModuleGraphViewModel(nodes, edges, display, enabledEdgeKinds, brightnessCriteria, lineCategories, selectedModule, hoveredId, display.labelFadeThreshold > 0 ? zoomScale : 1),
-    [nodes, edges, display, enabledEdgeKinds, brightnessCriteria, lineCategories, selectedModule, hoveredId, zoomScale],
+    () => buildModuleGraphViewModel(nodes, edges, display, enabledEdgeKinds, lineCategories, selectedModule, hoveredId, display.labelFadeThreshold > 0 ? zoomScale : 1),
+    [nodes, edges, display, enabledEdgeKinds, lineCategories, selectedModule, hoveredId, zoomScale],
   );
 
   useEffect(() => {
@@ -351,9 +345,9 @@ export function ModuleGraph({
       forceLink<SimNode, SimLink>(simLinksRef.current)
         .id((node) => node.id)
         .distance((link) =>
-          Math.max(40, force.linkDistance - Math.min(18, link.edge.breakdown.total * 0.9)),
+          Math.max(40, force.linkDistance - Math.min(18, (link.edge.breakdown?.total ?? 0) * 0.9)),
         )
-        .strength((link) => Math.min(1, force.linkStrength + link.edge.breakdown.total * 0.05)),
+        .strength((link) => Math.min(1, force.linkStrength + (link.edge.breakdown?.total ?? 0) * 0.05)),
     [force.linkDistance, force.linkStrength],
   );
 
@@ -754,7 +748,7 @@ export function ModuleGraph({
             const id = node.module_name;
             const model = vm.nodeDisplayById.get(id)!;
             const visible = lineCategoryTotal(node.line_categories, lineCategories);
-            const complexityRatio = brightnessCriteria.size ? (vm.brightnessById.get(id) ?? 0) : 0;
+            const complexityRatio = 0;
             const isSelected = selectedModule === id;
             const isPinned = !!pinned[id];
             return (

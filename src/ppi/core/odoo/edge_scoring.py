@@ -1,10 +1,7 @@
 """Typed edge scoring via ``match EdgeKindGroup`` (no ``if`` chains).
 
-Replaces the legacy ``edge_breakdown`` that summed over stringly kind sets with
-a declarative group dispatch over the typed :class:`EdgeKind` enum. Scoring is
-pure: input is an iterable of typed kind counts, output is an immutable
-:class:`EdgeBreakdown` (re-using the typed version from :mod:`ppi.core.odoo.facts`
-to avoid a second type).
+Scoring is pure: input is an iterable of typed kind counts, output is a
+generic ``dict[str, int]`` keyed by ``EdgeKindGroup.value``.
 """
 
 from __future__ import annotations
@@ -12,44 +9,20 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable
 
-from ppi.core.odoo.facts import EdgeBreakdown, EdgeKindCount
-from ppi.core.value_objects import EdgeKind, EdgeKindGroup, edge_kind_group_of
+from ppi.core.odoo.facts import EdgeKindCount, breakdown_from_kind_counts
+from ppi.core.value_objects import EdgeKind
 
 __all__ = [
+    "breakdown_from_kind_counts",
     "score_from_kind_counts",
     "score_from_kinds",
-    "breakdown_from_kind_counts",
     "module_scores_from_edges",
 ]
 
 
-def breakdown_from_kind_counts(counts: Iterable[EdgeKindCount]) -> EdgeBreakdown:
-    """Build a typed breakdown from typed kind counts via ``match`` group dispatch."""
-    model_reuse = 0
-    extension_or_method = 0
-    view = 0
-    field_property = 0
-    for record in counts:
-        match edge_kind_group_of(record.kind):
-            case EdgeKindGroup.MODEL_REUSE:
-                model_reuse += record.count
-            case EdgeKindGroup.EXTENSION_OR_METHOD:
-                extension_or_method += record.count
-            case EdgeKindGroup.VIEW:
-                view += record.count
-            case EdgeKindGroup.FIELD_PROPERTY:
-                field_property += record.count
-    return EdgeBreakdown(
-        model_reuse=model_reuse,
-        extension_or_method=extension_or_method,
-        view=view,
-        field_property=field_property,
-    )
-
-
 def score_from_kind_counts(counts: Iterable[EdgeKindCount]) -> int:
     """Return the total graph points for typed kind counts."""
-    return breakdown_from_kind_counts(counts).total
+    return sum(breakdown_from_kind_counts(counts).values())
 
 
 def score_from_kinds(kinds: Iterable[EdgeKind]) -> int:

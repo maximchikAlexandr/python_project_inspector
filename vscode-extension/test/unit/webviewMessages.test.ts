@@ -32,6 +32,6 @@ test("rejects a malformed message", () => {
 });
 
 test("request message tolerates missing params", () => {
-  const parsed = WebviewMessageSchema.safeParse({ kind: "request", id: 1, method: "status" });
+  const parsed = WebviewMessageSchema.safeParse({ kind: "request", id: 1, method: "project/info" });
   assert.ok(parsed.success);
 });

@@ -5,26 +5,6 @@ from __future__ import annotations
 import msgspec
 
 
-class Evidence(msgspec.Struct, frozen=True):
-    """One justification for a relation occurrence."""
-
-    kind: str
-    file_path: str
-    line: int
-    detail: str
-    source_quote: str = ""
-
-
-class EdgeBreakdown(msgspec.Struct, frozen=True):
-    """Per-edge graph-point breakdown."""
-
-    model_reuse: int
-    extension_or_method: int
-    view: int
-    field_property: int
-    total: int
-
-
 class AnalysisScope(msgspec.Struct, frozen=True):
     """Selected module scope for one analysis run."""
 
@@ -71,15 +51,10 @@ class FileMetrics(msgspec.Struct, frozen=True):
 
     module_name: str
     relative_path: str
-    category: str
-    lines: int
-    function_count: int
-    jones_line_count: int
-    cyclomatic: Distribution
-    cognitive: Distribution
-    jones: Distribution
-    top_folder: str = "."
-    parse_error: str | None = None
+    line_category_id: str
+    metrics: dict[str, float]
+    line_counts: dict[str, int]
+    distributions: dict[str, Distribution]
 
 
 class ModuleAggregate(msgspec.Struct, frozen=True):
@@ -87,19 +62,9 @@ class ModuleAggregate(msgspec.Struct, frozen=True):
 
     module_name: str
     total_lines: int
-    line_categories: dict[str, int]
-    cyclomatic: Distribution
-    cognitive: Distribution
-    jones: Distribution
-    declared_models_count: int
-    inherited_models_count: int
-    python_complexity_parse_errors: int
-    score_out: int
-    score_in: int
-    python_file_count: int = 0
-    declared_models: tuple[str, ...] = ()
-    inherited_models: tuple[str, ...] = ()
-    manifest_depends: tuple[str, ...] = ()
+    metrics: dict[str, float]
+    line_counts: dict[str, int]
+    distributions: dict[str, Distribution]
 
 
 class CouplingEdge(msgspec.Struct, frozen=True):
@@ -109,8 +74,7 @@ class CouplingEdge(msgspec.Struct, frozen=True):
     target_module: str
     score: int
     kinds: dict[str, int]
-    breakdown: EdgeBreakdown | None = None
-    evidence: tuple[Evidence, ...] = ()
+    breakdown: dict[str, int] | None = None
 
 
 class FailureRecord(msgspec.Struct, frozen=True):

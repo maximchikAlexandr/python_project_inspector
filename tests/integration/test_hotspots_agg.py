@@ -76,15 +76,23 @@ def test_hotspots_p95_differs_from_mean(tmp_path: Path):
                     ModuleAggregate(
                         module_name="demo_module",
                         total_lines=10,
-                        line_categories={"python_lines": 10},
-                        cyclomatic=_distribution(mean=2.0, p95=9.0),
-                        cognitive=_distribution(mean=1.0, p95=1.0),
-                        jones=_distribution(mean=1.0, p95=1.0),
-                        declared_models_count=0,
-                        inherited_models_count=0,
-                        python_complexity_parse_errors=0,
-                        score_out=0,
-                        score_in=0,
+                        metrics={
+                            "cyclomatic_mean": 2.0,
+                            "cyclomatic_median": 1.0,
+                            "cyclomatic_p95": 9.0,
+                            "cyclomatic_max": 9.0,
+                            "cognitive_mean": 1.0,
+                            "cognitive_p95": 1.0,
+                            "jones_mean": 1.0,
+                            "jones_p95": 1.0,
+                            "python_file_count": 0,
+                        },
+                        line_counts={"python_lines": 10},
+                        distributions={
+                            "cyclomatic": _distribution(mean=2.0, p95=9.0),
+                            "cognitive": _distribution(mean=1.0, p95=1.0),
+                            "jones": _distribution(mean=1.0, p95=1.0),
+                        },
                     ),
                 ),
                 edges=(),
@@ -119,16 +127,18 @@ def test_hotspots_python_file_count(tmp_path: Path):
                     ModuleAggregate(
                         module_name="demo_module",
                         total_lines=10,
-                        line_categories={"python_lines": 10},
-                        cyclomatic=_distribution(mean=1.0, p95=1.0),
-                        cognitive=_distribution(mean=1.0, p95=1.0),
-                        jones=_distribution(mean=1.0, p95=1.0),
-                        declared_models_count=0,
-                        inherited_models_count=0,
-                        python_complexity_parse_errors=0,
-                        score_out=0,
-                        score_in=0,
-                        python_file_count=7,
+                        metrics={
+                            "cyclomatic_mean": 1.0,
+                            "cognitive_mean": 1.0,
+                            "jones_mean": 1.0,
+                            "python_file_count": 7,
+                        },
+                        line_counts={"python_lines": 10},
+                        distributions={
+                            "cyclomatic": _distribution(mean=1.0, p95=1.0),
+                            "cognitive": _distribution(mean=1.0, p95=1.0),
+                            "jones": _distribution(mean=1.0, p95=1.0),
+                        },
                     ),
                 ),
                 edges=(),
@@ -154,7 +164,7 @@ def test_hotspots_agg_parameter(odoo_sample_repo: Path, tmp_path: Path):
     responses = {
         agg: client.get(
             "/api/hotspots",
-            params={"level": "module", "metric": "cyclomatic", "by": "value", "agg": agg},
+            params={"level": "module", "metric_id": "cyclomatic", "by": "value", "agg": agg},
         )
         for agg in ("mean", "median", "p95", "max")
     }
