@@ -79,16 +79,19 @@ export function SnapshotEntityTable({ rows, columns, filesTable, fileColumns }: 
       </Table.Thead>
       <Table.Tbody>
         {rows.map((row, index) => {
-          const name = row.cells.module_name ?? String(index);
+          const name = row.id ?? String(row.cells.module_name ?? index);
+          const canDrill = row.actions?.drilldown === true;
           return (
             <Table.Tr key={String(name)}>
               {columns.map((col) => (
                 <Table.Td key={col.key}>{formatCell(cellValue(row, col.key))}</Table.Td>
               ))}
               <Table.Td>
-                <Button variant="subtle" size="xs" onClick={() => setDrillModule(String(name))}>
-                  Files
-                </Button>
+                {canDrill ? (
+                  <Button variant="subtle" size="xs" onClick={() => setDrillModule(String(name))}>
+                    Files
+                  </Button>
+                ) : null}
               </Table.Td>
             </Table.Tr>
           );

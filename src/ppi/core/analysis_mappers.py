@@ -191,6 +191,7 @@ def module_to_failures(
 def module_to_aggregate(
     module_name: str,
     module: ModuleFacts,
+    in_scope_deps: tuple[str, ...] = (),
 ) -> ModuleAggregate:
     """Map one module to a ``ModuleAggregate`` (pure)."""
     return ModuleAggregate(
@@ -202,6 +203,7 @@ def module_to_aggregate(
         },
         line_counts=dict(module.line_categories()),
         distributions=_distributions_from_complexity(module.complexity),
+        manifest_depends=in_scope_deps,
     )
 
 
@@ -242,8 +244,9 @@ def artifacts_to_batch_parts(
         facts = freeze_module_info(module)
         files.extend(module_to_file_metrics(module_name, facts))
         failures.extend(module_to_failures(module_name, facts, commit.commit_hash))
+        in_scope_deps = in_scope_manifest_depends(facts, module_names)
         modules.append(
-            module_to_aggregate(module_name, facts)
+            module_to_aggregate(module_name, facts, in_scope_deps)
         )
 
     edges = tuple(

@@ -65,6 +65,7 @@ class ModuleAggregate(msgspec.Struct, frozen=True):
     metrics: dict[str, float]
     line_counts: dict[str, int]
     distributions: dict[str, Distribution]
+    manifest_depends: tuple[str, ...] = ()
 
 
 class CouplingEdge(msgspec.Struct, frozen=True):

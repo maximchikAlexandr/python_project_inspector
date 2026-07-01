@@ -32,3 +32,12 @@ def create_app(store_file: Path, lock_file: Path) -> FastAPI:
     if static_dir is not None:
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
     return app
+
+
+def openapi_schema(store_file: Path, lock_file: Path) -> dict:
+    """Return the OpenAPI 3.1 schema for the dashboard API.
+
+    Used by the ``ppi openapi`` CLI command to export ``openapi.json``
+    for downstream codegen (openapi-typescript, openapi-fetch, etc.).
+    """
+    return create_app(store_file, lock_file).openapi()

@@ -1,5 +1,5 @@
 import type { GraphEdge, GraphNode } from "../api/client";
-import { colorForComplexityRatio, strokeForComplexityRatio } from "../registry/odooProfile";
+import { colorForComplexityRatio, strokeForComplexityRatio } from "../registry/graphUiHelpers";
 import {
   buildGraphEdgeViews,
   computeNodeDisplay,
@@ -27,6 +27,7 @@ export function buildModuleGraphViewModel(
   selectedModule: string | null,
   hoveredId: string | null,
   labelZoom: number,
+  badgeMetrics: readonly string[] = [],
 ): ModuleGraphViewModel {
   const maxMetric = maxNodeMetric(nodes, display.nodeSizeMetric, lineCategories);
   const thicknessMax = maxLinkThicknessMetric(edges, display, enabledEdgeKinds);
@@ -49,6 +50,7 @@ export function buildModuleGraphViewModel(
         fill: "",
         stroke: "",
         zoomScale: 1,
+        badgeMetrics,
       }).radius,
     );
     nodeDisplayById.set(
@@ -62,6 +64,7 @@ export function buildModuleGraphViewModel(
         fill: colorForComplexityRatio(ratio),
         stroke: strokeForComplexityRatio(ratio),
         zoomScale: labelZoom,
+        badgeMetrics,
       }),
     );
   }

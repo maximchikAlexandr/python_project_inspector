@@ -7,7 +7,7 @@ owns the router table and calls these by method name.
 
 from __future__ import annotations
 
-from ppi.query import schemas
+from ppi.query import metric_catalog, schemas
 from ppi.query._params import QueryError, _opt_bool, _opt_str, _req
 from ppi.storage.queries import StoreReader
 
@@ -18,34 +18,13 @@ def commits(reader: StoreReader, params: dict) -> list[schemas.CommitResponse]:
 
 def metrics_timeseries(reader: StoreReader, params: dict) -> schemas.TimeseriesResponse:
     level = _req(params, "level")
-    metric_id = _req(params, "metric_id")
+    metric_id = metric_catalog.validate_metric_id(_req(params, "metric_id"), level=level)
     agg = _req(params, "agg")
     name = _opt_str(params, "name")
-    if level == "module":
-        if not name:
-            raise QueryError("INVALID_PARAMS", "name is required for module level", http_status=422)
-        if not reader.module_exists(name):
-            raise QueryError("QUERY_NOT_FOUND", f"unknown module: {name}", http_status=404)
-        points = (
-            reader.module_lines_timeseries(name)
-            if metric_id == "lines"
-            else reader.module_complexity_timeseries(name, metric=metric_id, agg=agg)
-        )
-    else:
-        if not name:
-            raise QueryError("INVALID_PARAMS", "name is required for file level", http_status=422)
-        module_name, _, relative_path = name.partition("/")
-        if not module_name or not relative_path:
-            raise QueryError("INVALID_PARAMS", "file name must be module/relative/path", http_status=422)
-        if not reader.file_exists(module_name, relative_path):
-            raise QueryError("QUERY_NOT_FOUND", f"unknown file: {name}", http_status=404)
-        points = (
-            reader.file_lines_timeseries(module_name, relative_path)
-            if metric_id == "lines"
-            else reader.file_complexity_timeseries(
-                module_name, relative_path, metric=metric_id, agg=agg,
-            )
-        )
+    if not name:
+        raise QueryError("INVALID_PARAMS", "name is required for {level} level".format(level=level), http_status=422)
+    method_name = metric_catalog.reader_method_for(metric_id, level)
+    points = _invoke_reader(reader, method_name, level, name)
     if not points:
         raise QueryError("QUERY_NOT_FOUND", f"unknown {level}: {name}", http_status=404)
     return schemas.TimeseriesResponse(
@@ -59,6 +38,22 @@ def metrics_timeseries(reader: StoreReader, params: dict) -> schemas.TimeseriesR
             )
         ],
     )
+
+
+def _invoke_reader(reader: StoreReader, method_name: str, level: str, name: str) -> list:
+    """Dispatch to the right reader method for a (level, name) pair.
+
+    `name` is a module name at module level, or `module/relative_path` at file level.
+    """
+    method = getattr(reader, method_name)
+    if level == "module":
+        return method(name)
+    module_name, _, relative_path = name.partition("/")
+    if not module_name or not relative_path:
+        raise QueryError("INVALID_PARAMS", "file name must be module/relative/path", http_status=422)
+    if not reader.file_exists(module_name, relative_path):
+        raise QueryError("QUERY_NOT_FOUND", f"unknown file: {name}", http_status=404)
+    return method(module_name, relative_path)
 
 
 def hotspots(reader: StoreReader, params: dict) -> schemas.HotspotsResponse:
@@ -87,43 +82,65 @@ def graph(reader: StoreReader, params: dict) -> schemas.GraphResponse:
     )
 
 
+def _ui_option(o: metric_catalog.Option) -> schemas.UiOption:
+    return schemas.UiOption(id=o.id, label=o.label, default_enabled=o.default_enabled)
+
+
+def _ui_metric_option_from_metric(m: metric_catalog.MetricDefinition) -> schemas.UiMetricOption:
+    return schemas.UiMetricOption(
+        id=m.metric_id,
+        label=m.label,
+        unit=m.unit or "",
+        format=m.format or "",
+        default_enabled=m.default_enabled,
+    )
+
+
+def _ui_metric_option_from_graph(o: metric_catalog.GraphViewOption) -> schemas.UiMetricOption:
+    return schemas.UiMetricOption(
+        id=o.id, label=o.label, format="d", default_enabled=o.default_enabled,
+    )
+
+
 def ui_config(reader: StoreReader, params: dict) -> schemas.UiConfigResponse:
+    catalog_metrics = [_ui_metric_option_from_metric(m) for m in metric_catalog.all_metrics()]
     return schemas.UiConfigResponse(
-        dashboard_metrics=[
-            schemas.UiMetricOption(id="cyclomatic_mean", label="Cyclomatic Mean", unit="", format=".1f", default_enabled=True),
-            schemas.UiMetricOption(id="cognitive_mean", label="Cognitive Mean", unit="", format=".1f", default_enabled=True),
-            schemas.UiMetricOption(id="jones_mean", label="Jones Mean", unit="", format=".1f", default_enabled=True),
-            schemas.UiMetricOption(id="python_file_count", label="Python Files", unit="", format="d", default_enabled=False),
-        ],
-        aggregations=[
-            schemas.UiOption(id="mean", label="Mean", default_enabled=True),
-            schemas.UiOption(id="median", label="Median", default_enabled=True),
-            schemas.UiOption(id="p95", label="P95", default_enabled=False),
-            schemas.UiOption(id="max", label="Max", default_enabled=False),
-        ],
-        tables=[
-            schemas.UiTableDefinition(key="modules", label="Modules", columns=[
-                schemas.UiColumnDefinition(key="module_name", label="Module", type="string"),
-                schemas.UiColumnDefinition(key="total_lines", label="Lines", type="number"),
-            ]),
-            schemas.UiTableDefinition(key="files", label="Files", columns=[
-                schemas.UiColumnDefinition(key="relative_path", label="File", type="string"),
-                schemas.UiColumnDefinition(key="line_category_id", label="Category", type="string"),
-            ]),
-            schemas.UiTableDefinition(key="relations", label="Relations", columns=[
-                schemas.UiColumnDefinition(key="source_id", label="Source", type="string"),
-                schemas.UiColumnDefinition(key="relation_type_id", label="Type", type="string"),
-                schemas.UiColumnDefinition(key="target_id", label="Target", type="string"),
-            ]),
-        ],
+        dashboard_metrics=catalog_metrics,
+        aggregations=[_ui_option(a) for a in metric_catalog.aggregations()],
+        tables=_TABLE_DEFINITIONS,
         graph=schemas.UiGraphConfig(
-            edge_types=[],
-            line_categories=[schemas.UiOption(id="python_lines", label="Python", default_enabled=True)],
-            brightness_metrics=[schemas.UiMetricOption(id="cyclomatic_mean", label="Cyclomatic", format=".1f", default_enabled=True)],
-            node_size_metrics=[schemas.UiMetricOption(id="total_lines", label="Lines", format="d", default_enabled=True)],
-            link_thickness_metrics=[schemas.UiMetricOption(id="score", label="Score", format="d", default_enabled=True)],
+            edge_types=[_ui_option(r) for r in metric_catalog.relation_types()],
+            line_categories=[_ui_option(l) for l in metric_catalog.line_categories()],
+            brightness_metrics=catalog_metrics,
+            node_size_metrics=[
+                _ui_metric_option_from_graph(o) for o in metric_catalog.node_size_options()
+            ],
+            link_thickness_metrics=[
+                _ui_metric_option_from_graph(o) for o in metric_catalog.link_thickness_options()
+            ],
         ),
     )
+
+
+_TABLE_DEFINITIONS: tuple[schemas.UiTableDefinition, ...] = (
+    schemas.UiTableDefinition(key="modules", label="Modules", columns=(
+        schemas.UiColumnDefinition(key="module_name", label="Module", type="string"),
+        schemas.UiColumnDefinition(key="total_lines", label="Lines", type="number"),
+        schemas.UiColumnDefinition(key="line_counts", label="Line counts", type="json"),
+    )),
+    schemas.UiTableDefinition(key="files", label="Files", columns=(
+        schemas.UiColumnDefinition(key="relative_path", label="File", type="string"),
+        schemas.UiColumnDefinition(key="total_lines", label="Lines", type="number"),
+    )),
+    schemas.UiTableDefinition(key="relations", label="Relations", columns=(
+        schemas.UiColumnDefinition(key="source_id", label="Source", type="string"),
+        schemas.UiColumnDefinition(key="relation_type_id", label="Type", type="string"),
+        schemas.UiColumnDefinition(key="relation_type_label", label="Type label", type="string"),
+        schemas.UiColumnDefinition(key="target_id", label="Target", type="string"),
+        schemas.UiColumnDefinition(key="strength_metric_label", label="Strength", type="string"),
+        schemas.UiColumnDefinition(key="strength_value", label="Strength value", type="number"),
+    )),
+)
 
 
 def snapshot_table_modules(reader: StoreReader, params: dict) -> schemas.GenericTableResponse:
@@ -132,7 +149,12 @@ def snapshot_table_modules(reader: StoreReader, params: dict) -> schemas.Generic
     resolved = commit or reader.latest_commit_hash()
     return schemas.GenericTableResponse(
         commit_hash=resolved or "",
-        rows=[schemas.GenericTableRow(cells=row) for row in rows],
+        rows=[
+            schemas.GenericTableRow(
+                id=str(row.get("module_name", "")), cells=row, actions={"drilldown": True},
+            )
+            for row in rows
+        ],
     )
 
 

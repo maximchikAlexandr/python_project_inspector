@@ -41,7 +41,11 @@ export type UiConfigResponse = {
   graph: UiGraphConfig;
 };
 
-export type GenericTableRow = { cells: Record<string, unknown> };
+export type GenericTableRow = {
+  id?: string;
+  cells: Record<string, unknown>;
+  actions?: Record<string, boolean>;
+};
 
 export type GenericTableResponse = {
   commit_hash: string;
@@ -93,7 +97,7 @@ type TimeseriesSeries = {
 
 export type TimeseriesResponse = {
   level: "module" | "file";
-  metric: string;
+  metric_id: string;
   agg: string;
   series: TimeseriesSeries[];
 };
@@ -113,9 +117,8 @@ export type HotspotsResponse = {
 export type GraphNode = {
   module_name: string;
   total_lines: number;
-  line_categories: Record<string, number>;
   metrics?: Record<string, number>;
-  line_counts?: Record<string, number>;
+  line_counts: Record<string, number>;
 };
 
 export type GraphEdge = {

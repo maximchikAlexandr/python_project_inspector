@@ -32,12 +32,12 @@ describe("commitPositionLabel", () => {
 
 describe("resolveGraphSelection", () => {
   it("keeps focus when the module is present", () => {
-    const nodes: readonly GraphNode[] = [{ module_name: "m", total_lines: 1, line_categories: {} }];
+    const nodes: readonly GraphNode[] = [{ module_name: "m", total_lines: 1, line_counts: {} }];
     expect(resolveGraphSelection(nodes, "m").clearFocus).toBe(false);
   });
 
   it("clears focus when the module is missing", () => {
-    const nodes: readonly GraphNode[] = [{ module_name: "m", total_lines: 1, line_categories: {} }];
+    const nodes: readonly GraphNode[] = [{ module_name: "m", total_lines: 1, line_counts: {} }];
     const result = resolveGraphSelection(nodes, "missing");
     expect(result.clearFocus).toBe(true);
     expect(result.notice).toContain("missing");

@@ -59,6 +59,10 @@ function enumValue<T extends string>(value: unknown, fallback: T, allowed: reado
   return typeof value === "string" && allowed.includes(value as T) ? value as T : fallback;
 }
 
+function stringValueIn(value: unknown, fallback: string, allowed: readonly string[]): string {
+  return typeof value === "string" && allowed.length > 0 && allowed.includes(value) ? value : fallback;
+}
+
 function normalizeBooleanRecord<T extends string>(
   value: unknown,
   defaults: Readonly<Record<T, boolean>>,
@@ -89,7 +93,7 @@ function normalizeFilter(value: unknown): GraphFilterState {
   };
 }
 
-function normalizeDisplay(value: unknown): GraphDisplayState {
+function normalizeDisplay(value: unknown, allowedNodeSizeMetrics: readonly string[], allowedLinkThicknessMetrics: readonly string[]): GraphDisplayState {
   const source = isRecord(value) ? value : {};
   return {
     showArrows: booleanValue(source.showArrows, DEFAULT_DISPLAY_STATE.showArrows),
@@ -105,21 +109,9 @@ function normalizeDisplay(value: unknown): GraphDisplayState {
       0,
       2,
     ),
-    nodeSizeMetric: enumValue(source.nodeSizeMetric, DEFAULT_DISPLAY_STATE.nodeSizeMetric, [
-      "visible_lines",
-      "total_lines",
-      "method_count",
-      "score_in",
-      "score_out",
-      "fixed",
-    ]),
+    nodeSizeMetric: stringValueIn(source.nodeSizeMetric, DEFAULT_DISPLAY_STATE.nodeSizeMetric, allowedNodeSizeMetrics),
     nodeSizeScale: numberInRange(source.nodeSizeScale, DEFAULT_DISPLAY_STATE.nodeSizeScale, 0.5, 2),
-    linkThicknessMetric: enumValue(source.linkThicknessMetric, DEFAULT_DISPLAY_STATE.linkThicknessMetric, [
-      "total_points",
-      "selected_kind_points",
-      "score",
-      "fixed",
-    ]),
+    linkThicknessMetric: stringValueIn(source.linkThicknessMetric, DEFAULT_DISPLAY_STATE.linkThicknessMetric, allowedLinkThicknessMetrics),
     linkThicknessScale: numberInRange(
       source.linkThicknessScale,
       DEFAULT_DISPLAY_STATE.linkThicknessScale,
@@ -148,19 +140,27 @@ function normalizeSections(value: unknown): GraphSettings["sectionsExpanded"] {
   return normalizeBooleanRecord(value, DEFAULT_SECTIONS_EXPANDED);
 }
 
-function mergeSettingsWithDefaults(partial: Readonly<Partial<PersistedSettings>> | null | undefined): GraphSettings {
+function mergeSettingsWithDefaults(
+  partial: Readonly<Partial<PersistedSettings>> | null | undefined,
+  allowedNodeSizeMetrics: readonly string[],
+  allowedLinkThicknessMetrics: readonly string[],
+): GraphSettings {
   if (!partial) {
     return { ...DEFAULT_GRAPH_SETTINGS, sectionsExpanded: { ...DEFAULT_SECTIONS_EXPANDED } };
   }
   return {
     filter: normalizeFilter(partial.filter),
-    display: normalizeDisplay(partial.display),
+    display: normalizeDisplay(partial.display, allowedNodeSizeMetrics, allowedLinkThicknessMetrics),
     force: normalizeForce(partial.force),
     sectionsExpanded: normalizeSections(partial.sectionsExpanded),
   };
 }
 
-function parseSettings(raw: string | null): ParseSettingsResult {
+function parseSettings(
+  raw: string | null,
+  allowedNodeSizeMetrics: readonly string[],
+  allowedLinkThicknessMetrics: readonly string[],
+): ParseSettingsResult {
   if (!raw) {
     return { settings: { ...DEFAULT_GRAPH_SETTINGS }, saveDisabled: false };
   }
@@ -169,7 +169,7 @@ function parseSettings(raw: string | null): ParseSettingsResult {
     if (parsed.version !== SETTINGS_SCHEMA_VERSION) {
       return { settings: { ...DEFAULT_GRAPH_SETTINGS }, saveDisabled: false };
     }
-    return { settings: mergeSettingsWithDefaults(parsed), saveDisabled: false };
+    return { settings: mergeSettingsWithDefaults(parsed, allowedNodeSizeMetrics, allowedLinkThicknessMetrics), saveDisabled: false };
   } catch {
     return { settings: { ...DEFAULT_GRAPH_SETTINGS }, saveDisabled: false };
   }
@@ -195,9 +195,16 @@ export function trySaveSettings(settings: GraphSettings): { ok: boolean; saveDis
   }
 }
 
-export function loadSettingsFromStorage(): ParseSettingsResult {
+export function loadSettingsFromStorage(
+  allowedNodeSizeMetrics: readonly string[] = [],
+  allowedLinkThicknessMetrics: readonly string[] = [],
+): ParseSettingsResult {
   try {
-    return parseSettings(localStorage.getItem(SETTINGS_STORAGE_KEY));
+    return parseSettings(
+      localStorage.getItem(SETTINGS_STORAGE_KEY),
+      allowedNodeSizeMetrics,
+      allowedLinkThicknessMetrics,
+    );
   } catch {
     return { settings: { ...DEFAULT_GRAPH_SETTINGS }, saveDisabled: true };
   }

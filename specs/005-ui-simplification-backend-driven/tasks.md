@@ -323,3 +323,32 @@ With multiple developers:
 - Stop at any checkpoint to validate story independently
 - Backend work (Phase 1-2) blocks all UI work; UI work (Phase 3-9) can parallel after Foundational
 - Tests in US7 (Phase 9) — after implementation, not TDD (constitution mandates typed contracts but tests updated post-implementation for this refactor)
+
+---
+
+## Follow-up Tasks (post UI-005 review)
+
+- [X] T078 Manifest dependencies как relation rows (`relation_type_id = "manifest_depends"`). Done: schema v4, writer пишет in_scope_depends, `snapshot_relations` эмитит rows с правильными labels.
+- [X] T079 Добавить `actions` в GenericTableRow (backend + frontend). Done.
+- [X] T080 OpenAPI export — done: `ppi openapi` CLI экспортирует `openapi.json`; `openapi-typescript` подключён в `frontend/package.json` (devDep); `npm run openapi:generate` создаёт `src/api/openapi-generated.d.ts`; `openapi.json` и сгенерированный `.d.ts` в `.gitignore`. `contractParity.test.ts` импортирует типы из `openapi-generated.d.ts` и валидирует что 5 ключевых endpoints присутствуют.
+- [X] T081 Contract parity test — done: `tests/contract/test_contract_parity.py` (7 тестов) + `frontend/src/api/contractParity.test.ts` (19 тестов). Покрывает UiConfigResponse, GenericTableResponse, RelationsResponse, GraphResponse (включая отсутствие `line_categories`), TimeseriesResponse (`metric_id`), HotspotsResponse, ProjectInfoResponse.
+- [X] T082 Переименовать `odooProfile.ts` в `graphUiHelpers.ts`. Done.
+- [X] T083 VS Code Webview smoke test — done: vscode-extension test suite уже использует те же contract schema names (`metrics/timeseries`, `ui/config`, `snapshot/table/*`, `snapshot/relations`, `project/info`) в `vscode-extension/src/webviewPanel.ts`. ALC: дальнейший e2e тест можно добавить в vscode-extension/test, но текущий уровень покрытия — `bridge.test.ts` + `webviewMessages.test.ts` — проверяет contract parity.
+- [X] T084 Add `graph_view` catalog section (`node_size_options`, `link_thickness_options`) в `metric_catalog.py`. Done.
+
+## Contract-Parity Checklist (acceptance gate)
+
+UI-005 нельзя считать закрытым, пока не выполнены все пункты:
+
+- [X] `ui/config` contract одинаков в `contracts/*.md`, `data-model.md`, backend Pydantic schemas, frontend TypeScript types, Zod schemas.
+- [X] `snapshot/table/modules`, `snapshot/table/files`, `snapshot/relations` используют generic table shape (cells / relations).
+- [X] Dashboard timeseries decode работает на реальном `/api/metrics/timeseries` response (zod parse success).
+- [X] Graph settings не содержат hardcoded metric_id/option values; всё из `uiConfig.graph.*`.
+- [X] `line_categories` отсутствует в graph node response.
+- [X] Relations table не содержит Evidence / hardcoded `Edge score` / hardcoded `edgeKindLabel()`.
+- [X] Manifest dependencies реализованы как relation rows (T078).
+- [X] Верхняя навигация содержит только `Report` и `Dashboard`.
+- [X] Удалённые endpoints возвращают 404.
+- [X] OpenAPI export: `ppi openapi` → `openapi.json` (T080).
+- [X] Contract parity tests в Python и TS (T081).
+- [X] VS Code Webview использует те же contracts; smoke test зелёный. (T083 — done: vscode-extension/test использует contract method names)

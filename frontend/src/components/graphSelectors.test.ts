@@ -23,14 +23,16 @@ function node(name: string, lines = 10): GraphNode {
   return {
     module_name: name,
     total_lines: lines,
-    line_categories: { python_lines: lines },
-    python_file_count: 1,
-    method_count: 0,
-    cyclomatic_median: 0,
-    cognitive_median: 0,
-    jones_median: 0,
-    score_in: 0,
-    score_out: 0,
+    line_counts: { python_lines: lines },
+    metrics: {
+      python_file_count: 1,
+      method_count: 0,
+      cyclomatic_median: 0,
+      cognitive_median: 0,
+      jones_median: 0,
+      score_in: 0,
+      score_out: 0,
+    },
   };
 }
 

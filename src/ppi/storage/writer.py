@@ -29,6 +29,15 @@ def _split_scope_values(raw: str) -> tuple[str, ...]:
     return tuple(part for part in raw.split(",") if part)
 
 
+def _serialize_distributions(
+    dist: dict[str, Distribution],
+) -> str:
+    return json.dumps(
+        {k: {"count": v.count, "mean": v.mean, "median": v.median, "p95": v.p95, "max": v.max}
+         for k, v in dist.items()},
+    )
+
+
 class StoreWriter:
     """Write analysis batches into one DuckDB store."""
 
@@ -187,7 +196,7 @@ class StoreWriter:
                         file_metric.line_category_id,
                         json.dumps(file_metric.metrics),
                         json.dumps(file_metric.line_counts),
-                        json.dumps({k: {"count": v.count, "mean": v.mean, "median": v.median, "p95": v.p95, "max": v.max} for k, v in file_metric.distributions.items()}),
+                        _serialize_distributions(file_metric.distributions),
                     ],
                 )
             for module in batch.modules:
@@ -195,8 +204,8 @@ class StoreWriter:
                     """
                     INSERT OR REPLACE INTO module_aggregate (
                         commit_hash, module_name, total_lines,
-                        metrics, line_counts, distributions
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        metrics, line_counts, distributions, manifest_depends
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         commit.commit_hash,
@@ -204,7 +213,8 @@ class StoreWriter:
                         module.total_lines,
                         json.dumps(module.metrics),
                         json.dumps(module.line_counts),
-                        json.dumps({k: {"count": v.count, "mean": v.mean, "median": v.median, "p95": v.p95, "max": v.max} for k, v in module.distributions.items()}),
+                        _serialize_distributions(module.distributions),
+                        json.dumps(sorted(module.manifest_depends)),
                     ],
                 )
             for edge in batch.edges:

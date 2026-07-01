@@ -1,7 +1,7 @@
 import { clamp, filter, map, sumBy } from "remeda";
 
 import type { GraphEdge, GraphNode } from "../api/client";
-import { MAX_NODE_RADIUS, MIN_NODE_RADIUS, NEUTRAL_NODE_RADIUS, lineCategoryTotal } from "../registry/odooProfile";
+import { MAX_NODE_RADIUS, MIN_NODE_RADIUS, NEUTRAL_NODE_RADIUS, lineCategoryTotal } from "../registry/graphUiHelpers";
 import type { GraphDisplayState, GraphFilterState } from "./graphSettingsTypes";
 import { edgeStrokeWidth } from "./graphViewPure";
 
@@ -29,7 +29,7 @@ export type NodeDisplayModel = {
   readonly fill: string;
   readonly stroke: string;
   readonly label: string | null;
-  readonly badges: { readonly in: number; readonly out: number; readonly files: number; readonly methods: number } | null;
+  readonly badges: { readonly [metricId: string]: number } | null;
 };
 
 type EdgeDisplayModel = { readonly thickness: number; readonly visible: boolean; readonly label: string | null };
@@ -196,10 +196,10 @@ function nodeMetricValue(
   lineCategories: ReadonlySet<string>,
 ): number {
   if (metric === "visible_lines") {
-    return lineCategoryTotal(node.line_categories, lineCategories);
+    return lineCategoryTotal(node.line_counts, lineCategories);
   }
   if (metric === "total_lines") {
-    return sumBy(Object.values(node.line_categories), (value) => value ?? 0);
+    return node.total_lines;
   }
   if (metric === "fixed") {
     return 1;
@@ -231,6 +231,7 @@ export function computeNodeDisplay(
     readonly fill: string;
     readonly stroke: string;
     readonly zoomScale: number;
+    readonly badgeMetrics?: readonly string[];
   },
 ): NodeDisplayModel {
   const metricValue = nodeMetricValue(node, display.nodeSizeMetric, context.lineCategories);
@@ -251,18 +252,15 @@ export function computeNodeDisplay(
   const label = shouldLabel && !(display.labelFadeThreshold > 0 && context.zoomScale < display.labelFadeThreshold)
     ? node.module_name
     : null;
+  const badgeMetrics = context.badgeMetrics ?? [];
+  const metrics = node.metrics ?? {};
   return {
     radius,
     fill: context.fill,
     stroke: context.selected ? "#dc2626" : context.stroke,
     label,
-    badges: display.showNodeBadges
-      ? {
-          in: node.metrics?.score_in ?? 0,
-          out: node.metrics?.score_out ?? 0,
-          files: node.metrics?.python_file_count ?? 0,
-          methods: node.metrics?.method_count ?? 0,
-        }
+    badges: display.showNodeBadges && badgeMetrics.length > 0
+      ? Object.fromEntries(badgeMetrics.map((id) => [id, metrics[id] ?? 0]))
       : null,
   };
 }

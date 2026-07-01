@@ -9,6 +9,7 @@ from typing import Any
 import duckdb
 
 from ppi.core.contracts import AnalysisScope, ProjectRef
+from ppi.query import metric_catalog
 from ppi.storage import schema
 
 _AGG_SUFFIXES = frozenset({"mean", "median", "p95", "max"})
@@ -510,7 +511,7 @@ class StoreReader:
                     "total_lines": row[1],
                     "metrics": parsed_metrics,
                     "line_counts": parsed_line_counts,
-                    "line_categories": parsed_line_counts,
+
                 },
             )
 
@@ -637,10 +638,10 @@ class StoreReader:
         commit_hash: str | None = None,
         include_zero_score: bool = False,
     ) -> list[dict[str, Any]]:
-        """Return relation rows expanded from coupling edges at one commit."""
+        """Return relation rows expanded from coupling edges and manifest deps at one commit."""
         resolved = self._resolve_commit(commit_hash)
 
-        rows = self._connection.execute(
+        coupling_rows = self._connection.execute(
             """
             SELECT
                 source_module,
@@ -654,8 +655,17 @@ class StoreReader:
             [resolved],
         ).fetchall()
 
+        manifest_rows = self._connection.execute(
+            """
+            SELECT module_name, manifest_depends
+            FROM module_aggregate
+            WHERE commit_hash = ? AND manifest_depends != ''
+            """,
+            [resolved],
+        ).fetchall()
+
         relations: list[dict[str, Any]] = []
-        for row in rows:
+        for row in coupling_rows:
             source = row[0]
             target = row[1]
             score = int(row[2])
@@ -672,10 +682,34 @@ class StoreReader:
                         "target_id": target,
                         "target_label": target,
                         "relation_type_id": kind_key,
-                        "relation_type_label": kind_key,
+                        "relation_type_label": metric_catalog.relation_type_label(kind_key),
                         "strength_metric_id": "score",
-                        "strength_metric_label": "Edge score",
+                        "strength_metric_label": metric_catalog.strength_metric_label("score"),
                         "strength_value": float(score),
+                    }
+                )
+        for row in manifest_rows:
+            source = row[0]
+            raw = row[1]
+            if raw:
+                try:
+                    deps = json.loads(raw)
+                except (ValueError, json.JSONDecodeError):
+                    deps = [d for d in raw.split(",") if d]
+            else:
+                deps = []
+            for target in deps:
+                relations.append(
+                    {
+                        "source_id": source,
+                        "source_label": source,
+                        "target_id": target,
+                        "target_label": target,
+                        "relation_type_id": "manifest_depends",
+                        "relation_type_label": metric_catalog.relation_type_label("manifest_depends"),
+                        "strength_metric_id": "",
+                        "strength_metric_label": "",
+                        "strength_value": 0.0,
                     }
                 )
         return relations

@@ -22,7 +22,7 @@ export function ModuleDetailPanel({ module, brightnessCriteria, metricOptions, l
     );
   }
   const metrics = (module.metrics ?? {}) as Record<string, number>;
-  const lineCounts = (module.line_counts ?? module.line_categories ?? {}) as Record<string, number>;
+  const lineCounts = (module.line_counts ?? {}) as Record<string, number>;
   const activeMetrics = metricOptions.filter((o) => brightnessCriteria.has(o.id));
   const name = String(module.module_name ?? "");
 

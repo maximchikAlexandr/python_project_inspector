@@ -12,7 +12,7 @@ import type {
 import { applyGraphFilters, maxEffectiveEdgeScore } from "./graphSelectors";
 import { useGraphLayoutStore } from "./useGraphLayoutStore";
 import { useGraphSettings } from "./useGraphSettings";
-import { CHART_CATEGORY_COLORS } from "../registry/odooProfile";
+import { CHART_CATEGORY_COLORS } from "../registry/graphUiHelpers";
 
 type LayoutNodeMap = Map<string, LayoutNodePosition>;
 

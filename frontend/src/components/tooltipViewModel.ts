@@ -24,16 +24,17 @@ export function buildEdgeTooltip(edge: GraphEdge): string {
 }
 
 /** Build the node tooltip text (graph view). */
-export function buildNodeTooltip(node: GraphNode, visible: number): string {
+export function buildNodeTooltip(
+  node: GraphNode,
+  visible: number,
+  metricIds: readonly string[] = [],
+): string {
   const m = node.metrics ?? {};
-  return [
-    node.module_name,
-    `visible=${formatCodeLines(visible)}`,
-    `CC med ${formatMetricValue(m.cyclomatic_median)}`,
-    `cognitive med ${formatMetricValue(m.cognitive_median)}`,
-    `Jones med ${formatMetricValue(m.jones_median)}`,
-    `methods=${m.method_count ?? 0}`,
-  ].join(" | ");
+  const parts: string[] = [node.module_name, `visible=${formatCodeLines(visible)}`];
+  for (const id of metricIds) {
+    parts.push(`${id}=${formatMetricValue(m[id])}`);
+  }
+  return parts.join(" | ");
 }
 
 /** Tooltip variant chosen by a small mapping-table (PPI-028). */

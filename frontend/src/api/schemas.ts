@@ -55,7 +55,11 @@ export const UiConfigResponseSchema = z.object({
   graph: UiGraphConfigSchema,
 });
 
-export const GenericTableRowSchema = z.object({ cells: z.record(z.string(), z.unknown()) });
+export const GenericTableRowSchema = z.object({
+  id: z.string().optional(),
+  cells: z.record(z.string(), z.unknown()),
+  actions: z.record(z.string(), z.boolean()).optional(),
+});
 
 export const GenericTableResponseSchema = z.object({
   commit_hash: z.string(),
@@ -99,9 +103,8 @@ export const commitsResponseSchema = z.array(CommitRowSchema);
 export const GraphNodeSchema = z.object({
   module_name: z.string(),
   total_lines: z.number(),
-  line_categories: readonlyStringRecord,
   metrics: z.record(z.string(), z.number()).optional(),
-  line_counts: z.record(z.string(), z.number()).optional(),
+  line_counts: z.record(z.string(), z.number()),
 });
 
 export const GraphEdgeSchema = z.object({
@@ -133,7 +136,7 @@ export const TimeseriesSeriesSchema = z.object({
 
 export const TimeseriesResponseSchema = z.object({
   level: z.enum(["module", "file"]),
-  metric: z.string(),
+  metric_id: z.string(),
   agg: z.string(),
   series: z.array(TimeseriesSeriesSchema),
 });

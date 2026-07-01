@@ -59,7 +59,6 @@ class GraphNodeResponse(BaseModel):
     total_lines: int
     metrics: dict[str, float]
     line_counts: dict[str, int]
-    line_categories: dict[str, int]
 
 
 class GraphResponse(BaseModel):
@@ -112,7 +111,9 @@ class UiConfigResponse(BaseModel):
 
 
 class GenericTableRow(BaseModel):
+    id: str = ""
     cells: dict[str, Any]
+    actions: dict[str, bool] | None = None
 
 
 class GenericTableResponse(BaseModel):

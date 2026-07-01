@@ -624,7 +624,17 @@ def query(
             payload = reader.graph_at_commit(commit_hash, include_zero_score=include_zero_score)
         elif metric == "snapshot-table-modules":
             rows = reader.snapshot_table_modules(commit_hash)
-            payload = {"commit_hash": _ch(commit_hash), "rows": [{"cells": row} for row in rows]}
+            payload = {
+                "commit_hash": _ch(commit_hash),
+                "rows": [
+                    {
+                        "id": str(row.get("module_name", "")),
+                        "cells": row,
+                        "actions": {"drilldown": True},
+                    }
+                    for row in rows
+                ],
+            }
         elif metric == "snapshot-table-files":
             rows = reader.snapshot_table_files(commit_hash, module_name)
             payload = {"commit_hash": _ch(commit_hash), "rows": [{"cells": row} for row in rows]}
@@ -700,6 +710,34 @@ def serve(ctx: CliContext, host: str, port: int, open_browser: bool) -> None:
     if open_browser:
         webbrowser.open(url)
     uvicorn.run(app, host=host, port=port)
+
+
+@cli.command()
+@click.option(
+    "--output",
+    type=click.Path(dir_okay=False, writable=True),
+    default="-",
+    show_default=True,
+    help="Output path; '-' for stdout.",
+)
+@pass_context
+def openapi(ctx: CliContext, output: str) -> None:
+    """Export the dashboard API OpenAPI 3.1 schema as JSON.
+
+    Used by downstream codegen (openapi-typescript, openapi-fetch) to
+    replace manually-maintained frontend schemas with generated SDK.
+    """
+    import json as _json
+
+    from ppi.server.app import openapi_schema
+
+    schema = openapi_schema(store_path(ctx.repo), writer_lock_path(ctx.repo))
+    serialized = _json.dumps(schema, indent=2, ensure_ascii=False)
+    if output == "-":
+        click.echo(serialized)
+        return
+    Path(output).write_text(serialized, encoding="utf-8")
+    click.echo(f"WROTE {output}")
 
 
 @cli.command()

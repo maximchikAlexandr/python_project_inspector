@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 
 import type { CommitRow } from "../api/client";
 import { t } from "../i18n";
+import type { UiMetricOption } from "../api/client";
 
 import { GraphLegend } from "./GraphLegend";
 import type { GraphStats } from "./graphSelectors";
@@ -60,6 +61,8 @@ type Props = {
   readonly collapsed: boolean;
   readonly onToggleCollapsed: () => void;
   readonly saveNotice: string | null;
+  readonly nodeSizeOptions?: readonly UiMetricOption[];
+  readonly linkThicknessOptions?: readonly UiMetricOption[];
 };
 
 const SECTION_KEYS: GraphSectionKey[] = ["filters", "display", "forces", "focus", "stats"];
@@ -110,6 +113,8 @@ function PanelBody({
   timelapse,
   onTimelapse,
   saveNotice,
+  nodeSizeOptions,
+  linkThicknessOptions,
 }: Omit<Props, "collapsed" | "onToggleCollapsed" | "onResetAll">) {
   const singleCommit = commits.length < 2;
   const commitIndex = selectedCommit
@@ -217,14 +222,7 @@ function PanelBody({
                 onChange={(value) =>
                   onDisplayChange({ nodeSizeMetric: value as GraphDisplayState["nodeSizeMetric"] })
                 }
-                data={[
-                  { label: t("graph.settings.metric.visible", "Visible"), value: "visible_lines" },
-                  { label: t("graph.settings.metric.total", "Total"), value: "total_lines" },
-                  { label: t("graph.settings.metric.methods", "Methods"), value: "method_count" },
-                  { label: "IN", value: "score_in" },
-                  { label: "OUT", value: "score_out" },
-                  { label: t("graph.settings.metric.fixed", "Fixed"), value: "fixed" },
-                ]}
+                data={(nodeSizeOptions ?? []).map((o) => ({ label: o.label, value: o.id }))}
               />
               <Text size="xs">
                 {t("graph.settings.nodeSizeScale", "Node size scale: {{value}}", {
@@ -249,12 +247,7 @@ function PanelBody({
                     linkThicknessMetric: value as GraphDisplayState["linkThicknessMetric"],
                   })
                 }
-                data={[
-                  { label: t("graph.settings.metric.total", "Total"), value: "total_points" },
-                  { label: t("graph.settings.metric.kinds", "Kinds"), value: "selected_kind_points" },
-                  { label: t("graph.settings.metric.score", "Score"), value: "score" },
-                  { label: t("graph.settings.metric.fixed", "Fixed"), value: "fixed" },
-                ]}
+                data={(linkThicknessOptions ?? []).map((o) => ({ label: o.label, value: o.id }))}
               />
               <Text size="xs">
                 {t("graph.settings.linkThicknessScale", "Link thickness scale: {{value}}", {
@@ -487,6 +480,8 @@ function PanelBody({
                 nodeSizeMetric={settings.display.nodeSizeMetric}
                 linkThicknessMetric={settings.display.linkThicknessMetric}
                 edgeKindMeta={edgeKindMeta}
+                nodeSizeOptions={nodeSizeOptions}
+                linkThicknessOptions={linkThicknessOptions}
               />
             </Stack>
           </Accordion.Panel>

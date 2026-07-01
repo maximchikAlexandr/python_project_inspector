@@ -12,7 +12,7 @@ import { Text } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { GraphEdge, GraphNode } from "../api/client";
-import { lineCategoryTotal, textColorForComplexityRatio } from "../registry/odooProfile";
+import { lineCategoryTotal, textColorForComplexityRatio } from "../registry/graphUiHelpers";
 import { formatCodeLines } from "../utils/metricFormat";
 import type { GraphDisplayState, GraphForceState } from "./graphSettingsTypes";
 import type { LayoutCommandKind, ZoomCommandKind } from "./GraphSettingsPanel";
@@ -190,6 +190,7 @@ export function ModuleGraph({
   display,
   force,
   enabledEdgeKinds,
+  brightnessCriteria,
   lineCategories,
   selectedModule,
   onSelectModule,
@@ -233,8 +234,12 @@ export function ModuleGraph({
   );
 
   const vm = useMemo(
-    () => buildModuleGraphViewModel(nodes, edges, display, enabledEdgeKinds, lineCategories, selectedModule, hoveredId, display.labelFadeThreshold > 0 ? zoomScale : 1),
-    [nodes, edges, display, enabledEdgeKinds, lineCategories, selectedModule, hoveredId, zoomScale],
+    () => buildModuleGraphViewModel(
+      nodes, edges, display, enabledEdgeKinds, lineCategories, selectedModule, hoveredId,
+      display.labelFadeThreshold > 0 ? zoomScale : 1,
+      [...brightnessCriteria],
+    ),
+    [nodes, edges, display, enabledEdgeKinds, lineCategories, selectedModule, hoveredId, zoomScale, brightnessCriteria],
   );
 
   useEffect(() => {
@@ -747,7 +752,7 @@ export function ModuleGraph({
           {nodes.map((node) => {
             const id = node.module_name;
             const model = vm.nodeDisplayById.get(id)!;
-            const visible = lineCategoryTotal(node.line_categories, lineCategories);
+            const visible = lineCategoryTotal(node.line_counts, lineCategories);
             const complexityRatio = 0;
             const isSelected = selectedModule === id;
             const isPinned = !!pinned[id];
@@ -792,7 +797,7 @@ export function ModuleGraph({
                   onTogglePin(id);
                 }}
               >
-                <title>{buildNodeTooltip(node, visible)}</title>
+                <title>{buildNodeTooltip(node, visible, [...brightnessCriteria])}</title>
                 <circle
                   r={model.radius}
                   fill={model.fill}

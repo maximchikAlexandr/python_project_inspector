@@ -16,27 +16,30 @@
 class RelationRowResponse(BaseModel):
     source_id: str
     source_label: str
-    source_kind: str | None = None
     target_id: str
     target_label: str
-    target_kind: str | None = None
     relation_type_id: str
     relation_type_label: str
-    strength_metric_id: str
-    strength_metric_label: str
-    strength_value: float
+    strength_metric_id: str = ""
+    strength_metric_label: str = ""
+    strength_value: float = 0
 
 class RelationsResponse(BaseModel):
     commit_hash: str
-    columns: list[UiColumnDefinition]
-    rows: list[RelationRowResponse]
+    relations: list[RelationRowResponse]
 ```
 
 ## Notes
 
 - Заменяет `edge-points`, `edge-points/batch`, `edge-evidence`, `depends` (все удалены).
-- Manifest dependencies представлены как rows с `relation_type_id = "manifest_depends"` (извлекаются из фактов в query layer, не из `module_manifest_depend` таблицы — таблица удалена).
-- `relation_type_label` и `strength_metric_label` приходят из `ui/config.graph.edge_types`.
-- `columns` в response зеркалит `ui/config.tables.relations` — backend обеспечивает консистентность.
+- Строки строятся из `coupling_edge.kinds` (relation type → count) и `module_aggregate.manifest_depends` (manifest dependencies).
+- Manifest dependencies представлены как relation rows с `relation_type_id = "manifest_depends"`, `relation_type_label = "Manifest depends on"`, `strength_metric_id = ""`, `strength_metric_label = ""`, `strength_value = 0.0`.
+- `module_aggregate.manifest_depends` хранится как comma-separated строка in-scope зависимостей (фильтруется через `in_scope_manifest_depends` в `analysis_mappers`).
+- Column definitions **не** дублируются в response — frontend берёт их из `ui/config.tables.relations`.
+- `relation_type_label` и `strength_metric_label` приходят из backend.
 - Не содержит колонку `Evidence`, Odoo-specific category list, hardcoded `edgeKindLabel()`.
-- Frontend рендерит `RelationsTable` generic по `columns` + `rows`.
+- Frontend рендерит `RelationsTable` generic по `columns` (из ui/config) + `relations`.
+
+## Schema Migration
+
+Manifest dependencies потребовали schema v3 → v4 (добавлена колонка `manifest_depends VARCHAR` в `module_aggregate`). Существующие DB пересобираются через `analyze --rebuild` или migrate автоматически (migration statement: `ALTER TABLE ... ADD COLUMN IF NOT EXISTS manifest_depends VARCHAR DEFAULT ''`).

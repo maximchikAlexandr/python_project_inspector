@@ -28,7 +28,7 @@ import type { TreemapFile } from "../components/FileTreemap";
 import { t } from "../i18n";
 import { useSnapshotGraphExplorer } from "../components/useSnapshotGraphExplorer";
 import { useAppNavigation } from "../navigation";
-import { lineCategoryTotal } from "../registry/odooProfile";
+import { lineCategoryTotal } from "../registry/graphUiHelpers";
 import { toCommitSelectOptions } from "../transforms/commitOptions";
 import {
   resolveGraphSelection,
@@ -113,7 +113,7 @@ export function SnapshotPage() {
       if (!modulesTable) return 0;
       let total = 0;
       for (const row of modulesTable.rows) {
-        const counts = (row.cells.line_counts ?? row.cells.line_categories ?? {}) as Record<string, number>;
+        const counts = (row.cells.line_counts ?? {}) as Record<string, number>;
         for (const cat of lineCategories) {
           total += counts[cat] ?? 0;
         }
@@ -141,7 +141,7 @@ export function SnapshotPage() {
   const moduleVisibleLines = useMemo(
     () =>
       moduleDetail ? lineCategoryTotal(
-        (moduleDetail.line_counts ?? moduleDetail.line_categories ?? {}) as Record<string, number>,
+        (moduleDetail.line_counts ?? {}) as Record<string, number>,
         lineCategories,
       ) : 0,
     [lineCategories, moduleDetail],
@@ -229,15 +229,13 @@ export function SnapshotPage() {
     setError(null);
     Promise.all([
       fetchSnapshotTableModules(selectedCommit),
-      fetchSnapshotTableFiles(selectedCommit),
       fetchSnapshotRelations(selectedCommit),
     ])
-      .then(([modules, files, relations]) => {
+      .then(([modules, relations]) => {
         if (generation !== snapshotGeneration.current) {
           return;
         }
         setModulesTable(modules);
-        setFilesTable(files);
         setRelationsData(relations);
       })
       .catch((err: Error) => {
@@ -251,6 +249,27 @@ export function SnapshotPage() {
         }
       });
   }, [resetLayoutState, selectedCommit]);
+
+  useEffect(() => {
+    if (!selectedCommit) {
+      return;
+    }
+    const generation = snapshotGeneration.current + 1;
+    snapshotGeneration.current = generation;
+    setError(null);
+    fetchSnapshotTableFiles(selectedCommit, selectedModule ?? undefined)
+      .then((files) => {
+        if (generation !== snapshotGeneration.current) {
+          return;
+        }
+        setFilesTable(files);
+      })
+      .catch((err: Error) => {
+        if (generation === snapshotGeneration.current) {
+          setError(err.message);
+        }
+      });
+  }, [selectedCommit, selectedModule]);
 
   useEffect(() => {
     if (!selectedCommit) {
@@ -380,6 +399,8 @@ export function SnapshotPage() {
             collapsed={graphPanelProps.panelCollapsed}
             onToggleCollapsed={graphPanelProps.onToggleCollapsed}
             saveNotice={graphPanelProps.panelSaveNotice}
+            nodeSizeOptions={uiConfig?.graph.node_size_metrics}
+            linkThicknessOptions={uiConfig?.graph.link_thickness_metrics}
           />
         </Group>
       </Paper>

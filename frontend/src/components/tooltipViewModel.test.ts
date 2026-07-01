@@ -24,7 +24,7 @@ describe("buildNodeTooltip", () => {
     const node: GraphNode = {
       module_name: "m",
       total_lines: 100,
-      line_categories: { python_lines: 50 },
+      line_counts: { python_lines: 50 },
       metrics: {
         method_count: 7,
         cyclomatic_median: 4,
@@ -32,10 +32,10 @@ describe("buildNodeTooltip", () => {
         jones_median: 2,
       },
     };
-    const tooltip = buildNodeTooltip(node, 50);
+    const tooltip = buildNodeTooltip(node, 50, ["method_count", "cyclomatic_median"]);
     expect(tooltip).toContain("m");
-    expect(tooltip).toContain("methods=7");
-    expect(tooltip).toContain("CC med");
+    expect(tooltip).toContain("method_count=7");
+    expect(tooltip).toContain("cyclomatic_median=4");
   });
 });
 
@@ -73,7 +73,7 @@ describe("buildTooltipModel", () => {
   });
 
   it("returns {kind:'module'} with content for a node", () => {
-    const node: GraphNode = { module_name: "m", total_lines: 100, line_categories: { python_lines: 50 }, metrics: { method_count: 7, cyclomatic_median: 4, cognitive_median: 9, jones_median: 2 } };
+    const node: GraphNode = { module_name: "m", total_lines: 100, line_counts: { python_lines: 50 }, metrics: { method_count: 7, cyclomatic_median: 4, cognitive_median: 9, jones_median: 2 } };
     const result = buildTooltipModel(node, 50);
     expect(result.kind).toBe("module");
     expect((result as Extract<TooltipModel, { kind: "module" }>).content).toContain("m");

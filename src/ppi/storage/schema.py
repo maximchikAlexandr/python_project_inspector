@@ -6,7 +6,7 @@ from pathlib import Path
 
 import duckdb
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 DDL_STATEMENTS = (
     """
@@ -72,6 +72,7 @@ DDL_STATEMENTS = (
         metrics JSON NOT NULL,
         line_counts JSON NOT NULL,
         distributions JSON NOT NULL,
+        manifest_depends VARCHAR DEFAULT '',
         PRIMARY KEY (commit_hash, module_name)
     )
     """,
@@ -97,7 +98,14 @@ DDL_STATEMENTS = (
     """,
 )
 
-MIGRATION_STATEMENTS: tuple[str, ...] = ()
+MIGRATION_STATEMENTS: tuple[str, ...] = (
+    # v3 -> v4: add manifest_depends column to module_aggregate
+    # DuckDB doesn't support ADD COLUMN with NOT NULL DEFAULT, so use a
+    # plain VARCHAR with a default empty string handled in the writer.
+    """
+    ALTER TABLE module_aggregate ADD COLUMN IF NOT EXISTS manifest_depends VARCHAR DEFAULT ''
+    """,
+)
 
 
 def initialize_schema(connection: duckdb.DuckDBPyConnection, tool_version: str) -> None:

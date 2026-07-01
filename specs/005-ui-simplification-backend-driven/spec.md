@@ -253,3 +253,13 @@ Backend перестаёт отдавать и собирать данные, к
 - CLI/tests, зависящие от удаляемых API-методов, обновляются или удаляются в этом патче; методы не помечаются deprecated, а удаляются полностью.
 - Translation/i18n cleanup затрагивает только ключи, связанные с удаляемыми вкладками, блоками и hardcoded labels; остальные переводы не изменяются.
 - Реализация следует предложенному порядку: (1) `ui/config` backend+frontend, (2) toolbars backend-driven, (3) удаление вкладок, (4) упрощение `SnapshotPage`, (5) detail panel’и, (6) иерархическая таблица, (7) `RelationsTable`, (8) backend response models, (9) dead code/i18n, (10) evidence collection.
+
+## `failure` table (internal diagnostics)
+
+Таблица `failure` остаётся в storage schema для **внутренней диагностики** (CLI `doctor`, отладка, AST/parse errors из odoo pipeline). Она **не отображается в пользовательском UI** (FR-039):
+
+- Writer продолжает записывать parse failures и AST errors.
+- API endpoint `GET /api/failures` **удалён** из user-facing surface.
+- CLI `ppi doctor` использует таблицу для диагностики.
+- Storage schema и writer для `failure` **не удаляются** в этом патче.
+- Если в будущем потребуется полностью удалить `failure` — отдельный патч.
