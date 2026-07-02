@@ -79,6 +79,7 @@ class UiMetricOption(BaseModel):
     unit: str = ""
     format: str = ""
     default_enabled: bool = False
+    supported_levels: list[Literal["module", "file"]] = []
 
 
 class UiColumnDefinition(BaseModel):

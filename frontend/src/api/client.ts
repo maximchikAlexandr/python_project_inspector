@@ -4,12 +4,15 @@ export type UiOption = {
   default_enabled?: boolean;
 };
 
+export type DashboardLevel = "module" | "file";
+
 export type UiMetricOption = {
   id: string;
   label: string;
   unit?: string;
   format?: string;
   default_enabled?: boolean;
+  supported_levels?: readonly DashboardLevel[];
 };
 
 export type UiColumnDefinition = {
@@ -67,14 +70,6 @@ export type RelationRow = {
 export type RelationsResponse = {
   commit_hash: string;
   relations: RelationRow[];
-};
-
-export type ProjectInfoResponse = {
-  project_id: string | null;
-  branch: string | null;
-  commit_count: number;
-  schema_version: number;
-  store_present: boolean;
 };
 
 export type CommitRow = {
@@ -160,10 +155,6 @@ function validate<T>(schema: { safeParse(d: unknown): { success: boolean; data?:
 
 export function fetchUiConfig(): Promise<UiConfigResponse> {
   return ds().get<unknown>("ui/config").then((d) => validate(S.UiConfigResponseSchema, d, "ui/config"));
-}
-
-export function fetchProjectInfo(): Promise<ProjectInfoResponse> {
-  return ds().get<unknown>("project/info").then((d) => validate(S.ProjectInfoResponseSchema, d, "project/info"));
 }
 
 export function fetchCommits(): Promise<CommitRow[]> {

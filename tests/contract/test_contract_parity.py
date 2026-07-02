@@ -6,7 +6,7 @@ shape used by frontend Zod schemas and contract markdown files.
 These tests guard against silent contract drift between backend,
 frontend, and documentation. The current shape is intentionally
 kept in sync via the contract docs at:
-    specs/005-ui-simplification-backend-driven/contracts/
+    specs/006-graph-ui-polish/contracts/
 
 The test compares Pydantic-generated JSON Schema against a curated
 list of expected field names per type. If a field is added/removed
@@ -62,7 +62,7 @@ def test_ui_config_response_fields() -> None:
         "link_thickness_metrics",
     }
     assert _model_fields(UiOption) == {"id", "label", "default_enabled"}
-    assert _model_fields(UiMetricOption) == {"id", "label", "unit", "format", "default_enabled"}
+    assert _model_fields(UiMetricOption) == {"id", "label", "unit", "format", "default_enabled", "supported_levels"}
     assert _model_fields(UiColumnDefinition) == {"key", "label", "type", "metric_id", "width"}
     assert _model_fields(UiTableDefinition) == {"key", "label", "columns"}
 

@@ -1,4 +1,4 @@
-export type GraphSectionKey = "filters" | "display" | "forces" | "focus" | "stats";
+export type GraphSectionKey = "filters" | "display" | "forces" | "focus";
 
 export type GraphFilterState = {
   enabledEdgeKinds: Record<string, boolean>;
@@ -78,7 +78,6 @@ export const DEFAULT_SECTIONS_EXPANDED: Record<GraphSectionKey, boolean> = {
   display: true,
   forces: true,
   focus: true,
-  stats: true,
 };
 
 export const DEFAULT_GRAPH_SETTINGS: GraphSettings = {

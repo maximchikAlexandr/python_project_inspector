@@ -12,7 +12,13 @@ import { Text } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { GraphEdge, GraphNode } from "../api/client";
-import { lineCategoryTotal, textColorForComplexityRatio } from "../registry/graphUiHelpers";
+import { lineCategoryTotal } from "../registry/graphUiHelpers";
+import {
+  anyNodeVisible,
+  clampPanToBounds,
+  paddedViewportBounds,
+  VIEWPORT_PADDING_RATIO_MIN,
+} from "../transforms/graphViewport";
 import { formatCodeLines } from "../utils/metricFormat";
 import type { GraphDisplayState, GraphForceState } from "./graphSettingsTypes";
 import type { LayoutCommandKind, ZoomCommandKind } from "./GraphSettingsPanel";
@@ -225,6 +231,7 @@ export function ModuleGraph({
     startY: number;
     moved: boolean;
   } | null>(null);
+  const recoveryTimerRef = useRef<number | null>(null);
   const [zoomScale, setZoomScale] = useState(1);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [hoveredEdgeKey, setHoveredEdgeKey] = useState<string | null>(null);
@@ -590,8 +597,10 @@ export function ModuleGraph({
       x: manualPanRef.current.x + event.deltaX * (vb.w / screenWidth),
       y: manualPanRef.current.y + event.deltaY * (vb.h / screenHeight),
     };
+    applyBoundedPan();
     const effectiveZoom = vb.w > 0 ? GRAPH_WIDTH / vb.w : 1;
     setZoomScale(effectiveZoom);
+    scheduleRecovery();
   }
 
   function onBackgroundMouseDown(event: React.MouseEvent<SVGSVGElement>) {
@@ -616,6 +625,7 @@ export function ModuleGraph({
         x: panning.panX - (event.clientX - panning.startX) * (vb.w / screenWidth),
         y: panning.panY - (event.clientY - panning.startY) * (vb.h / screenHeight),
       };
+      applyBoundedPan();
       return;
     }
     if (draggingId) {
@@ -661,7 +671,75 @@ export function ModuleGraph({
     }, 0);
     setPanning(null);
     setDraggingId(null);
+    scheduleRecovery();
   }
+
+  function graphBounds(): ViewBox | null {
+    if (!positionsRef.current.size) {
+      return null;
+    }
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const point of positionsRef.current.values()) {
+      minX = Math.min(minX, point.x - point.radius);
+      maxX = Math.max(maxX, point.x + point.radius);
+      minY = Math.min(minY, point.y - point.radius);
+      maxY = Math.max(maxY, point.y + point.radius);
+    }
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+
+  function applyBoundedPan() {
+    const bounds = graphBounds();
+    const svg = svgRef.current;
+    if (!bounds || !svg) return;
+    const viewport: ViewBox = {
+      x: viewBoxRef.current.x,
+      y: viewBoxRef.current.y,
+      w: viewBoxRef.current.w,
+      h: viewBoxRef.current.h,
+    };
+    const clamped = clampPanToBounds(
+      manualPanRef.current,
+      paddedViewportBounds(bounds, viewport, VIEWPORT_PADDING_RATIO_MIN),
+      viewport,
+      0,
+    );
+    manualPanRef.current = clamped;
+  }
+
+  function scheduleRecovery() {
+    if (recoveryTimerRef.current !== null) {
+      window.clearTimeout(recoveryTimerRef.current);
+    }
+    recoveryTimerRef.current = window.setTimeout(() => {
+      recoveryTimerRef.current = null;
+      const svg = svgRef.current;
+      if (!svg) return;
+      if (!positionsRef.current.size) return;
+      const viewport: ViewBox = {
+        x: viewBoxRef.current.x,
+        y: viewBoxRef.current.y,
+        w: viewBoxRef.current.w,
+        h: viewBoxRef.current.h,
+      };
+      if (anyNodeVisible(positionsRef.current, viewport)) return;
+      const target = computeTargetViewBox(positionsRef.current, zoomScaleRef.current, 0, 0);
+      viewBoxRef.current = target;
+      svg.setAttribute("viewBox", `${target.x} ${target.y} ${target.w} ${target.h}`);
+      manualPanRef.current = { x: 0, y: 0 };
+    }, 80);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (recoveryTimerRef.current !== null) {
+        window.clearTimeout(recoveryTimerRef.current);
+      }
+    };
+  }, []);
 
   const hideCanvas = emptyNotice === "no_kinds";
   const bannerNotice = emptyNotice && emptyNotice !== "no_kinds" ? EMPTY_NOTICE_TEXT[emptyNotice] : null;
@@ -753,7 +831,6 @@ export function ModuleGraph({
             const id = node.module_name;
             const model = vm.nodeDisplayById.get(id)!;
             const visible = lineCategoryTotal(node.line_counts, lineCategories);
-            const complexityRatio = 0;
             const isSelected = selectedModule === id;
             const isPinned = !!pinned[id];
             return (
@@ -809,7 +886,7 @@ export function ModuleGraph({
                     textAnchor="middle"
                     dy={4}
                     fontSize={Math.max(8, Math.min(12, model.radius * 0.45))}
-                    fill={textColorForComplexityRatio(complexityRatio)}
+                    fill="#111827"
                   >
                     {formatCodeLines(visible)}
                   </text>

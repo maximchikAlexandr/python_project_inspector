@@ -1,6 +1,7 @@
 import { hierarchy, treemap, treemapSquarify } from "d3-hierarchy";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { t } from "../i18n";
 import { compactLines } from "../utils/metricFormat";
 import {
   fileTooltip,
@@ -92,6 +93,20 @@ export function FileTreemap({ files, lineCategories, selectedPath, onSelect, onH
 
   return (
     <div ref={containerRef}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 6, fontSize: 13, alignItems: "center" }}>
+        <span
+          style={{ cursor: "pointer", color: selectedPath ? "var(--mantine-color-blue-6)" : "#495057", fontWeight: selectedPath ? 500 : 600 }}
+          onClick={() => onSelect(null)}
+        >
+          {t("snapshot.treemapBreadcrumbRoot", "All files")}
+        </span>
+        {selectedPath ? (
+          <>
+            <span style={{ color: "#adb5bd" }}>/</span>
+            <span style={{ color: "#495057" }}>{selectedPath.split("/").slice(1).join("/")}</span>
+          </>
+        ) : null}
+      </div>
       <div style={{ display: "flex", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
         {legend.map((folder) => (
           <span key={folder} style={{ fontSize: 12 }}>

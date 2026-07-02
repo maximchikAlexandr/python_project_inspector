@@ -4,6 +4,7 @@ import type { CommitRow, GraphEdge, GraphNode } from "../api/client";
 import type { TreemapFile } from "./FileTreemap";
 import { layoutNodesToMap, pinnedFromLayout, type LayoutNodePosition } from "../domain/layoutCodec";
 import { commitPositionLabel } from "../transforms/snapshotTransforms";
+import { nextTimelapseState } from "../transforms/timelapseTransforms";
 import type {
   LayoutCommandKind,
   TimelapseAction,
@@ -31,41 +32,6 @@ type Args = {
   readonly setFocusNotice: (notice: string | null) => void;
   readonly defaultEnabledEdgeKinds?: Readonly<Record<string, boolean>>;
 };
-
-function nextTimelapseState({
-  action,
-  commits,
-  selectedCommit,
-  playing,
-  speed,
-}: {
-  readonly action: TimelapseAction;
-  readonly commits: readonly CommitRow[];
-  readonly selectedCommit: string | null;
-  readonly playing: boolean;
-  readonly speed: number;
-}): { readonly playing: boolean; readonly speed: number; readonly selectedCommit: string | null } {
-  if (action.kind === "play") {
-    return { playing: true, speed, selectedCommit };
-  }
-  if (action.kind === "pause") {
-    return { playing: false, speed, selectedCommit };
-  }
-  if (action.kind === "speed") {
-    return { playing, speed: action.speed, selectedCommit };
-  }
-  const index = commits.findIndex((row) => row.commit_hash === selectedCommit);
-  if (action.kind === "prev" && index > 0) {
-    return { playing, speed, selectedCommit: commits[index - 1].commit_hash };
-  }
-  if (action.kind === "next" && index >= 0 && index < commits.length - 1) {
-    return { playing, speed, selectedCommit: commits[index + 1].commit_hash };
-  }
-  if (action.kind === "next" && index >= commits.length - 1) {
-    return { playing: false, speed, selectedCommit };
-  }
-  return { playing, speed, selectedCommit };
-}
 
 export function useSnapshotGraphExplorer({
   commits,

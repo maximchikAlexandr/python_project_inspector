@@ -10,8 +10,6 @@ import { z } from "zod";
 
 export const EdgeBreakdownSchema = z.record(z.string(), z.number());
 
-const readonlyStringRecord = z.record(z.string(), z.number());
-
 export const UiOptionSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -24,6 +22,7 @@ export const UiMetricOptionSchema = z.object({
   unit: z.string().optional(),
   format: z.string().optional(),
   default_enabled: z.boolean().optional(),
+  supported_levels: z.array(z.enum(["module", "file"])).optional(),
 });
 
 export const UiColumnDefinitionSchema = z.object({
@@ -112,7 +111,7 @@ export const GraphEdgeSchema = z.object({
   target: z.string(),
   score: z.number(),
   breakdown: EdgeBreakdownSchema.optional(),
-  kinds: readonlyStringRecord.optional(),
+  kinds: z.record(z.string(), z.number()).optional(),
   kind_occurrence_count: z.number().optional(),
   commit_hash: z.string().optional(),
 });

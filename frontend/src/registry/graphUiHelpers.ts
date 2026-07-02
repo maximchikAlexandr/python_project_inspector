@@ -38,7 +38,3 @@ export function colorForComplexityRatio(ratio: number): string {
 export function strokeForComplexityRatio(ratio: number): string {
   return interpolateRgb({ r: 107, g: 114, b: 128 }, { r: 17, g: 94, b: 89 }, ratio);
 }
-
-export function textColorForComplexityRatio(ratio: number): string {
-  return ratio >= 0.45 ? "#ffffff" : "#111827";
-}

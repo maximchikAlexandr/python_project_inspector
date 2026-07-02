@@ -7,6 +7,8 @@ owns the router table and calls these by method name.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from ppi.query import metric_catalog, schemas
 from ppi.query._params import QueryError, _opt_bool, _opt_str, _req
 from ppi.storage.queries import StoreReader
@@ -87,12 +89,18 @@ def _ui_option(o: metric_catalog.Option) -> schemas.UiOption:
 
 
 def _ui_metric_option_from_metric(m: metric_catalog.MetricDefinition) -> schemas.UiMetricOption:
+    supported: list[Literal["module", "file"]] = []
+    if m.reader_method_module is not None:
+        supported.append("module")
+    if m.reader_method_file is not None:
+        supported.append("file")
     return schemas.UiMetricOption(
         id=m.metric_id,
         label=m.label,
         unit=m.unit or "",
         format=m.format or "",
         default_enabled=m.default_enabled,
+        supported_levels=supported,
     )
 
 

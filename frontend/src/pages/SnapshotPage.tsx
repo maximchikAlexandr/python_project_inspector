@@ -1,63 +1,40 @@
-import { Accordion, Center, Group, Loader, Paper, Select, Stack, Text, Title } from "@mantine/core";
+import { Group, Loader, Paper, Select, Stack, Text, Title } from "@mantine/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   fetchCommits,
   fetchGraph,
-  fetchSnapshotRelations,
   fetchSnapshotTableFiles,
-  fetchSnapshotTableModules,
   fetchUiConfig,
   type CommitRow,
-  type GenericTableResponse,
   type GraphEdge,
   type GraphNode,
-  type RelationsResponse,
 } from "../api/client";
 import type { UiConfigResponse } from "../api/client";
-import { BrightnessToolbar } from "../components/BrightnessToolbar";
 import { FileDetailPanel } from "../components/FileDetailPanel";
 import { FileTreemap } from "../components/FileTreemap";
 import { GraphSettingsPanel } from "../components/GraphSettingsPanel";
-import { LineCategoryToolbar } from "../components/LineCategoryToolbar";
 import { ModuleDetailPanel } from "../components/ModuleDetailPanel";
 import { ModuleGraph } from "../components/ModuleGraph";
 import { VisibleLinesSummary } from "../components/VisibleLinesSummary";
-import { RelationsTable, SnapshotEntityTable } from "../components/ReportTables";
 import type { TreemapFile } from "../components/FileTreemap";
 import { t } from "../i18n";
 import { useSnapshotGraphExplorer } from "../components/useSnapshotGraphExplorer";
 import { useAppNavigation } from "../navigation";
 import { lineCategoryTotal } from "../registry/graphUiHelpers";
 import { toCommitSelectOptions } from "../transforms/commitOptions";
+import { formatCommitDate } from "../transforms/commitDate";
 import {
   resolveGraphSelection,
   resolveProjectStorageKey,
 } from "../transforms/snapshotTransforms";
 import { formatCodeLines } from "../utils/metricFormat";
-
-function LoadingPanel({ label }: { label: string }) {
-  return (
-    <Paper withBorder radius="md" p="xl" bg="#fbfcfd">
-      <Center>
-        <Stack align="center" gap="xs">
-          <Loader size="sm" />
-          <Text size="sm" c="dimmed">
-            {label}
-          </Text>
-        </Stack>
-      </Center>
-    </Paper>
-  );
-}
+import { LoadingPanel } from "../components/LoadingPanel";
 
 export function SnapshotPage() {
-  const { pendingSnapshot, clearPendingSnapshot } = useAppNavigation();
+  const { selectedCommit, setSelectedCommit } = useAppNavigation();
   const [commits, setCommits] = useState<readonly CommitRow[]>([]);
-  const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
-  const [modulesTable, setModulesTable] = useState<GenericTableResponse | null>(null);
-  const [filesTable, setFilesTable] = useState<GenericTableResponse | null>(null);
-  const [relationsData, setRelationsData] = useState<RelationsResponse | null>(null);
+  const [filesTable, setFilesTable] = useState<Awaited<ReturnType<typeof fetchSnapshotTableFiles>> | null>(null);
   const [graphNodes, setGraphNodes] = useState<readonly GraphNode[]>([]);
   const [graphEdges, setGraphEdges] = useState<readonly GraphEdge[]>([]);
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
@@ -66,10 +43,7 @@ export function SnapshotPage() {
   const [lineCategories, setLineCategories] = useState<Set<string>>(new Set());
   const [brightness, setBrightness] = useState<Set<string>>(new Set());
   const [loadingCommits, setLoadingCommits] = useState(true);
-  const [loadingSnapshot, setLoadingSnapshot] = useState(false);
-  const [loadingFiles, setLoadingFiles] = useState(false);
   const [loadingGraph, setLoadingGraph] = useState(false);
-  const [openSections, setOpenSections] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [focusNotice, setFocusNotice] = useState<string | null>(null);
   const [projectKey] = useState<string | null>(() =>
@@ -77,8 +51,6 @@ export function SnapshotPage() {
   );
   const [uiConfig, setUiConfig] = useState<UiConfigResponse | null>(null);
 
-  const snapshotGeneration = useRef(0);
-  const filesGeneration = useRef(0);
   const graphGeneration = useRef(0);
   const defaultEnabledEdgeKinds = useMemo(
     () => Object.fromEntries((uiConfig?.graph.edge_types ?? []).map((option) => [option.id, true])),
@@ -115,20 +87,21 @@ export function SnapshotPage() {
     settings,
   } = graphExplorer;
 
-  const linesTotal = useMemo(
-    () => {
-      if (!modulesTable) return 0;
-      let total = 0;
-      for (const row of modulesTable.rows) {
-        const counts = (row.cells.line_counts ?? {}) as Record<string, number>;
-        for (const cat of lineCategories) {
-          total += counts[cat] ?? 0;
-        }
-      }
-      return total;
-    },
-    [lineCategories, modulesTable],
+  const selectedCommitMeta = useMemo(
+    () => commits.find((row) => row.commit_hash === selectedCommit) ?? null,
+    [commits, selectedCommit],
   );
+  const commitDateLabel = useMemo(
+    () => formatCommitDate(selectedCommitMeta?.authored_at ?? null),
+    [selectedCommitMeta],
+  );
+  const edgeKindConfigLabels = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const opt of uiConfig?.graph.edge_types ?? []) {
+      map[opt.id] = opt.label;
+    }
+    return map;
+  }, [uiConfig]);
 
   const selectedCategoryLabels = useMemo(
     () =>
@@ -139,11 +112,11 @@ export function SnapshotPage() {
   );
 
   const moduleDetail = useMemo(() => {
-    if (!modulesTable || !selectedModule) return null;
-    const row = modulesTable.rows.find((r) => r.cells.module_name === selectedModule);
+    if (!filesTable || !selectedModule) return null;
+    const row = filesTable.rows.find((r) => r.cells.module_name === selectedModule);
     if (!row) return null;
     return row.cells;
-  }, [modulesTable, selectedModule]);
+  }, [filesTable, selectedModule]);
 
   const moduleVisibleLines = useMemo(
     () =>
@@ -154,7 +127,7 @@ export function SnapshotPage() {
     [lineCategories, moduleDetail],
   );
 
-  const moduleFiles = useMemo(() => {
+  const moduleFiles = useMemo<TreemapFile[]>(() => {
     if (!filesTable || !selectedModule) return [];
     return filesTable.rows
       .filter((r) => r.cells.module_name === selectedModule)
@@ -178,17 +151,6 @@ export function SnapshotPage() {
   }, [filesTable, selectedModule]);
 
   const activeFile = selectedFile ?? hoveredFile;
-
-  useEffect(() => {
-    if (!pendingSnapshot) {
-      return;
-    }
-    setSelectedCommit(pendingSnapshot.commitHash);
-    if (pendingSnapshot.tab) {
-      setOpenSections([pendingSnapshot.tab]);
-    }
-    clearPendingSnapshot();
-  }, [clearPendingSnapshot, pendingSnapshot]);
 
   useEffect(() => {
     fetchUiConfig().then(setUiConfig).catch(() => setUiConfig(null));
@@ -217,74 +179,30 @@ export function SnapshotPage() {
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoadingCommits(false));
-  }, []);
+  }, [setSelectedCommit]);
 
   useEffect(() => {
     if (!selectedCommit) {
+      setFilesTable(null);
       return;
     }
-    const generation = snapshotGeneration.current + 1;
-    snapshotGeneration.current = generation;
     setSelectedFile(null);
     setHoveredFile(null);
-    setModulesTable(null);
-    setFilesTable(null);
-    setRelationsData(null);
-    setGraphNodes([]);
-    setGraphEdges([]);
     setFocusNotice(null);
     resetLayoutState();
-    setLoadingSnapshot(true);
     setError(null);
-    Promise.all([
-      fetchSnapshotTableModules(selectedCommit),
-      fetchSnapshotRelations(selectedCommit),
-    ])
-      .then(([modules, relations]) => {
-        if (generation !== snapshotGeneration.current) {
-          return;
-        }
-        setModulesTable(modules);
-        setRelationsData(relations);
-      })
-      .catch((err: Error) => {
-        if (generation === snapshotGeneration.current) {
-          setError(err.message);
-        }
-      })
-      .finally(() => {
-        if (generation === snapshotGeneration.current) {
-          setLoadingSnapshot(false);
-        }
-      });
-  }, [resetLayoutState, selectedCommit]);
-
-  useEffect(() => {
-    if (!selectedCommit) {
-      return;
-    }
-    const generation = filesGeneration.current + 1;
-    filesGeneration.current = generation;
-    setError(null);
-    setLoadingFiles(true);
-    fetchSnapshotTableFiles(selectedCommit, selectedModule ?? undefined)
+    fetchSnapshotTableFiles(selectedCommit)
       .then((files) => {
-        if (generation !== filesGeneration.current) {
-          return;
-        }
         setFilesTable(files);
-      })
-      .catch((err: Error) => {
-        if (generation === filesGeneration.current) {
-          setError(err.message);
+        if (selectedModule) {
+          const exists = files.rows.some((r) => r.cells.module_name === selectedModule);
+          if (!exists) {
+            setSelectedModule(null);
+          }
         }
       })
-      .finally(() => {
-        if (generation === filesGeneration.current) {
-          setLoadingFiles(false);
-        }
-      });
-  }, [selectedCommit, selectedModule]);
+      .catch((err: Error) => setError(err.message));
+  }, [resetLayoutState, selectedCommit, selectedModule]);
 
   useEffect(() => {
     if (!selectedCommit) {
@@ -333,7 +251,7 @@ export function SnapshotPage() {
           {focusNotice}
         </Text>
       ) : null}
-      <Group align="flex-end" wrap="wrap">
+      <Group align="flex-end" wrap="wrap" gap="md">
         <Select
           label={t("common.commit", "Commit")}
           data={commitOptions}
@@ -344,6 +262,11 @@ export function SnapshotPage() {
           disabled={loadingCommits || selectedCommitDisabled}
           rightSection={loadingCommits ? <Loader size="xs" /> : undefined}
         />
+        <Text size="sm" c="dimmed" aria-label={t("common.commitDateUnavailable", "Date unavailable")}>
+          {commitDateLabel
+            ? t("snapshot.commitDate", "Commit date: {{date}}", { date: commitDateLabel })
+            : t("common.commitDateUnavailable", "Date unavailable")}
+        </Text>
         <Text size="sm" c="dimmed">
           {t("snapshot.visibleEdges", "Visible edges: {{count}}", {
             count: loadingGraph ? "…" : filterResult.stats.visibleEdges,
@@ -351,9 +274,9 @@ export function SnapshotPage() {
         </Text>
       </Group>
       <VisibleLinesSummary
-        total={linesTotal}
+        total={moduleFiles.length ? moduleVisibleLines : 0}
         selectedLabels={selectedCategoryLabels}
-        loading={loadingSnapshot}
+        loading={false}
       />
 
       <Paper withBorder radius="md" p="md">
@@ -381,8 +304,6 @@ export function SnapshotPage() {
               emptyNotice={emptyNotice}
               initialLayout={graphPanelProps.initialLayout}
             />
-            <LineCategoryToolbar active={lineCategories} onChange={setLineCategories} options={uiConfig?.graph.line_categories ?? []} />
-            <BrightnessToolbar active={brightness} onChange={setBrightness} options={uiConfig?.graph.brightness_metrics ?? []} />
             <ModuleDetailPanel
               module={moduleDetail}
               brightnessCriteria={brightness}
@@ -402,7 +323,6 @@ export function SnapshotPage() {
             onLayout={graphPanelProps.onLayout}
             onClearFocus={graphPanelProps.onClearFocus}
             onPinSelected={graphPanelProps.onPinSelected}
-            stats={filterResult.stats}
             edgeKindMeta={edgeKindMeta}
             maxEffectiveScore={maxEffectiveScore}
             selectedModule={selectedModule}
@@ -416,6 +336,13 @@ export function SnapshotPage() {
             saveNotice={graphPanelProps.panelSaveNotice}
             nodeSizeOptions={uiConfig?.graph.node_size_metrics}
             linkThicknessOptions={uiConfig?.graph.link_thickness_metrics}
+            lineCategoryOptions={uiConfig?.graph.line_categories}
+            lineCategoryActive={lineCategories}
+            onLineCategoryChange={setLineCategories}
+            brightnessOptions={uiConfig?.graph.brightness_metrics}
+            brightnessActive={brightness}
+            onBrightnessChange={setBrightness}
+            edgeKindConfigLabels={edgeKindConfigLabels}
           />
         </Group>
       </Paper>
@@ -436,7 +363,7 @@ export function SnapshotPage() {
             : t("snapshot.empty.selectModule", "Click a module on the graph to see its file map.")}
         </Text>
         {selectedModule ? (
-          loadingFiles ? (
+          loadingGraph ? (
             <LoadingPanel label={t("snapshot.loading.moduleFiles", "Loading module files...")} />
           ) : (
             <Stack gap="md">
@@ -456,42 +383,6 @@ export function SnapshotPage() {
           <FileDetailPanel file={null} />
         )}
       </Paper>
-
-      <Accordion
-        multiple
-        variant="contained"
-        value={openSections}
-        onChange={(value) => setOpenSections(Array.isArray(value) ? value : value ? [value] : [])}
-      >
-        <Accordion.Item value="lines">
-          <Accordion.Control>{t("snapshot.sections.moduleLines", "Module code lines")}</Accordion.Control>
-          <Accordion.Panel>
-            {loadingSnapshot ? (
-              <LoadingPanel label={t("snapshot.loading.moduleLines", "Loading module lines...")} />
-            ) : modulesTable ? (
-              <SnapshotEntityTable
-                rows={modulesTable.rows}
-                columns={uiConfig?.tables.find((tbl) => tbl.key === "modules")?.columns ?? []}
-                filesTable={filesTable}
-                fileColumns={uiConfig?.tables.find((tbl) => tbl.key === "files")?.columns ?? []}
-              />
-            ) : null}
-          </Accordion.Panel>
-        </Accordion.Item>
-        <Accordion.Item value="relations">
-          <Accordion.Control>{t("snapshot.sections.relations", "Relations")}</Accordion.Control>
-          <Accordion.Panel>
-            {loadingSnapshot ? (
-              <LoadingPanel label={t("snapshot.loading.relations", "Loading relations...")} />
-            ) : relationsData ? (
-              <RelationsTable
-                relations={relationsData.relations}
-                columns={uiConfig?.tables.find((tbl) => tbl.key === "relations")?.columns ?? []}
-              />
-            ) : null}
-          </Accordion.Panel>
-        </Accordion.Item>
-      </Accordion>
     </Stack>
   );
 }

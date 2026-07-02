@@ -59,9 +59,9 @@ describe("UiConfigResponse", () => {
   it("UiOption has id/label/default_enabled", () => {
     expect(SCHEMA_KEYS(UiOptionSchema)).toEqual(new Set(["id", "label", "default_enabled"]));
   });
-  it("UiMetricOption has id/label/unit/format/default_enabled", () => {
+  it("UiMetricOption has id/label/unit/format/default_enabled/supported_levels", () => {
     expect(SCHEMA_KEYS(UiMetricOptionSchema)).toEqual(
-      new Set(["id", "label", "unit", "format", "default_enabled"]),
+      new Set(["id", "label", "unit", "format", "default_enabled", "supported_levels"]),
     );
   });
   it("UiColumnDefinition has key/label/type/metric_id/width", () => {

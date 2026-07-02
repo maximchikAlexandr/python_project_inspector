@@ -2,6 +2,7 @@ import {
   Accordion,
   ActionIcon,
   Button,
+  Checkbox,
   Drawer,
   Group,
   Paper,
@@ -14,12 +15,10 @@ import {
 } from "@mantine/core";
 import { useEffect, useState } from "react";
 
-import type { CommitRow } from "../api/client";
+import type { CommitRow, UiMetricOption, UiOption } from "../api/client";
 import { t } from "../i18n";
-import type { UiMetricOption } from "../api/client";
+import { readableEdgeLabel } from "../transforms/edgeLabels";
 
-import { GraphLegend } from "./GraphLegend";
-import type { GraphStats } from "./graphSelectors";
 import type {
   GraphDisplayState,
   GraphFilterState,
@@ -49,7 +48,6 @@ type Props = {
   readonly onLayout: (kind: LayoutCommandKind) => void;
   readonly onClearFocus: () => void;
   readonly onPinSelected: () => void;
-  readonly stats: GraphStats;
   readonly edgeKindMeta: ReadonlyArray<{ key: string; label: string; color: string }>;
   readonly maxEffectiveScore: number;
   readonly selectedModule: string | null;
@@ -63,9 +61,16 @@ type Props = {
   readonly saveNotice: string | null;
   readonly nodeSizeOptions?: readonly UiMetricOption[];
   readonly linkThicknessOptions?: readonly UiMetricOption[];
+  readonly lineCategoryOptions?: readonly UiOption[];
+  readonly lineCategoryActive: ReadonlySet<string>;
+  readonly onLineCategoryChange: (next: Set<string>) => void;
+  readonly brightnessOptions?: readonly UiMetricOption[];
+  readonly brightnessActive: ReadonlySet<string>;
+  readonly onBrightnessChange: (next: Set<string>) => void;
+  readonly edgeKindConfigLabels?: Readonly<Record<string, string>>;
 };
 
-const SECTION_KEYS: GraphSectionKey[] = ["filters", "display", "forces", "focus", "stats"];
+const SECTION_KEYS: GraphSectionKey[] = ["filters", "display", "forces", "focus"];
 
 function sectionValue(expanded: Record<GraphSectionKey, boolean>): string[] {
   return SECTION_KEYS.filter((key) => expanded[key]);
@@ -103,7 +108,6 @@ function PanelBody({
   onLayout,
   onClearFocus,
   onPinSelected,
-  stats,
   edgeKindMeta,
   maxEffectiveScore,
   selectedModule,
@@ -115,7 +119,14 @@ function PanelBody({
   saveNotice,
   nodeSizeOptions,
   linkThicknessOptions,
-}: Omit<Props, "collapsed" | "onToggleCollapsed" | "onResetAll">) {
+  lineCategoryOptions,
+  lineCategoryActive,
+  onLineCategoryChange,
+  brightnessOptions,
+  brightnessActive,
+  onBrightnessChange,
+  edgeKindConfigLabels,
+}: Omit<Props, "collapsed" | "onToggleCollapsed" | "onResetAll" | "stats">) {
   const singleCommit = commits.length < 2;
   const commitIndex = selectedCommit
     ? commits.findIndex((row) => row.commit_hash === selectedCommit)
@@ -136,14 +147,54 @@ function PanelBody({
         value={sectionValue(settings.sectionsExpanded)}
         onChange={(value) => onSectionsExpandedChange(expandedFromAccordion(value))}
       >
+        <Accordion.Item value="lineCategories">
+          <Accordion.Control>
+            {t("graph.settings.sections.lineCategories", "Lines displayed inside node")}
+          </Accordion.Control>
+          <Accordion.Panel>
+            <Checkbox.Group
+              value={[...lineCategoryActive]}
+              onChange={(values) => onLineCategoryChange(new Set(values))}
+            >
+              <Stack gap="xs">
+                {(lineCategoryOptions ?? []).length === 0 ? (
+                  <Text size="xs" c="dimmed">—</Text>
+                ) : null}
+                {(lineCategoryOptions ?? []).map(({ id, label }) => (
+                  <Checkbox key={id} value={id} label={label} />
+                ))}
+              </Stack>
+            </Checkbox.Group>
+          </Accordion.Panel>
+        </Accordion.Item>
+        <Accordion.Item value="brightness">
+          <Accordion.Control>
+            {t("graph.settings.sections.brightness", "Module brightness criteria")}
+          </Accordion.Control>
+          <Accordion.Panel>
+            <Checkbox.Group
+              value={[...brightnessActive]}
+              onChange={(values) => onBrightnessChange(new Set(values))}
+            >
+              <Stack gap="xs">
+                {(brightnessOptions ?? []).length === 0 ? (
+                  <Text size="xs" c="dimmed">—</Text>
+                ) : null}
+                {(brightnessOptions ?? []).map(({ id, label }) => (
+                  <Checkbox key={id} value={id} label={label} />
+                ))}
+              </Stack>
+            </Checkbox.Group>
+          </Accordion.Panel>
+        </Accordion.Item>
         <Accordion.Item value="filters">
           <Accordion.Control>{t("graph.settings.sections.filters", "Filters")}</Accordion.Control>
           <Accordion.Panel>
             <Stack gap="sm">
-              {edgeKindMeta.map(({ key, label }) => (
+              {edgeKindMeta.map(({ key }) => (
                 <Switch
                   key={key}
-                  label={label}
+                  label={readableEdgeLabel(key, edgeKindConfigLabels?.[key])}
                   checked={settings.filter.enabledEdgeKinds[key]}
                   onChange={(event) =>
                     onFilterChange({
@@ -443,49 +494,6 @@ function PanelBody({
             </Stack>
           </Accordion.Panel>
         </Accordion.Item>
-        <Accordion.Item value="stats">
-          <Accordion.Control>{t("graph.settings.sections.stats", "Stats")}</Accordion.Control>
-          <Accordion.Panel>
-            <Stack gap={4}>
-              <Text size="xs">
-                {t("graph.settings.visibleNodes", "Visible nodes: {{visible}} / {{total}}", {
-                  visible: stats.visibleNodes,
-                  total: stats.totalNodes,
-                })}
-              </Text>
-              <Text size="xs">
-                {t("graph.settings.visibleEdges", "Visible edges: {{visible}} / {{total}}", {
-                  visible: stats.visibleEdges,
-                  total: stats.totalEdges,
-                })}
-              </Text>
-              <Text size="xs">
-                {t("graph.settings.hiddenByFilters", "Hidden by filters: {{value}}", {
-                  value: stats.hiddenByFilters,
-                })}
-              </Text>
-              <Text size="xs">
-                {t("graph.settings.selected", "Selected: {{value}}", {
-                  value: stats.selectedModule ?? t("graph.settings.none", "none"),
-                })}
-              </Text>
-              <Text size="xs">
-                {t("graph.settings.focusState", "Focus: {{enabled}} · depth {{depth}} · {{direction}}", {
-                  enabled: stats.focusState.enabled ? t("graph.settings.on", "on") : t("graph.settings.off", "off"),
-                  depth: stats.focusState.depth,
-                  direction: stats.focusState.direction,
-                })}
-              </Text>
-              <GraphLegend
-                nodeSizeMetric={settings.display.nodeSizeMetric}
-                linkThicknessMetric={settings.display.linkThicknessMetric}
-                edgeKindMeta={edgeKindMeta}
-                nodeSizeOptions={nodeSizeOptions}
-                linkThicknessOptions={linkThicknessOptions}
-              />
-            </Stack>
-          </Accordion.Panel>
-        </Accordion.Item>
       </Accordion>
       <Stack gap="xs">
         <Text size="xs" fw={600}>
@@ -581,9 +589,9 @@ export function GraphSettingsPanel(props: Props) {
     />
   );
 
-  if (narrow) {
-    return (
-      <>
+  return (
+    <>
+      {narrow || collapsed ? (
         <Tooltip label={t("graph.settings.title", "Graph settings")}>
           <ActionIcon
             size="lg"
@@ -595,6 +603,8 @@ export function GraphSettingsPanel(props: Props) {
             ⚙
           </ActionIcon>
         </Tooltip>
+      ) : null}
+      {narrow ? (
         <Drawer
           opened={!collapsed}
           onClose={onToggleCollapsed}
@@ -613,42 +623,24 @@ export function GraphSettingsPanel(props: Props) {
         >
           {inner}
         </Drawer>
-      </>
-    );
-  }
-
-  if (collapsed) {
-    return (
-      <Tooltip label={t("graph.settings.title", "Graph settings")}>
-        <ActionIcon
-          size="lg"
-          variant="light"
-          onClick={onToggleCollapsed}
-          aria-label={t("graph.settings.title", "Graph settings")}
-          style={{ minWidth: 32, minHeight: 32 }}
-        >
-          ⚙
-        </ActionIcon>
-      </Tooltip>
-    );
-  }
-
-  return (
-    <Paper withBorder radius="md" p="sm" w={320} style={{ flexShrink: 0, maxHeight: "calc(100vh - 120px)", overflow: "auto" }}>
-      <Group justify="space-between" mb="xs" wrap="nowrap">
-        <Text fw={600} size="sm">
-          {t("graph.settings.title", "Graph settings")}
-        </Text>
-        <Group gap={4}>
-          <Button size="compact-xs" variant="subtle" onClick={onResetAll} aria-label={t("graph.settings.resetAllLabel", "Reset all settings to defaults")}>
-            {t("graph.settings.reset", "Reset")}
-          </Button>
-          <ActionIcon variant="subtle" onClick={onToggleCollapsed} aria-label={t("graph.settings.collapsePanel", "Collapse graph settings panel")}>
-            ✕
-          </ActionIcon>
-        </Group>
-      </Group>
-      {inner}
-    </Paper>
+      ) : collapsed ? null : (
+        <Paper withBorder radius="md" p="sm" w={320} style={{ flexShrink: 0, maxHeight: "calc(100vh - 120px)", overflow: "auto" }}>
+          <Group justify="space-between" mb="xs" wrap="nowrap">
+            <Text fw={600} size="sm">
+              {t("graph.settings.title", "Graph settings")}
+            </Text>
+            <Group gap={4}>
+              <Button size="compact-xs" variant="subtle" onClick={onResetAll} aria-label={t("graph.settings.resetAllLabel", "Reset all settings to defaults")}>
+                {t("graph.settings.reset", "Reset")}
+              </Button>
+              <ActionIcon variant="subtle" onClick={onToggleCollapsed} aria-label={t("graph.settings.collapsePanel", "Collapse graph settings panel")}>
+                ✕
+              </ActionIcon>
+            </Group>
+          </Group>
+          {inner}
+        </Paper>
+      )}
+    </>
   );
 }
